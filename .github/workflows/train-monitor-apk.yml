@@ -1,0 +1,138 @@
+name: Build Train Monitor APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/train-monitor-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Generate Android project
+        shell: bash
+        run: |
+          rm -rf trainmonitor
+          mkdir -p trainmonitor/app/src/main/java/com/kalus/trainmonitor
+          mkdir -p trainmonitor/app/src/main/res/layout
+          mkdir -p trainmonitor/app/src/main/res/values
+
+          cat > trainmonitor/settings.gradle <<'EOF'
+          pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }
+          dependencyResolutionManagement { repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS); repositories { google(); mavenCentral() } }
+          rootProject.name='KalusTrainMonitor'
+          include ':app'
+          EOF
+
+          cat > trainmonitor/build.gradle <<'EOF'
+          plugins { id 'com.android.application' version '8.7.3' apply false }
+          EOF
+
+          cat > trainmonitor/app/build.gradle <<'EOF'
+          plugins { id 'com.android.application' }
+          android {
+            namespace 'com.kalus.trainmonitor'
+            compileSdk 35
+            defaultConfig {
+              applicationId 'com.kalus.trainmonitor'
+              minSdk 26
+              targetSdk 35
+              versionCode 1
+              versionName '1.0'
+            }
+          }
+          EOF
+
+          cat > trainmonitor/app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+            <uses-permission android:name="android.permission.INTERNET"/>
+            <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+            <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+            <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+            <application android:label="Kalus Train" android:theme="@style/AppTheme">
+              <activity android:name=".MainActivity" android:exported="true">
+                <intent-filter>
+                  <action android:name="android.intent.action.MAIN"/>
+                  <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+              </activity>
+              <service android:name=".TrainMonitorService" android:exported="false" android:foregroundServiceType="specialUse">
+                <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-requested continuous train delay monitoring"/>
+              </service>
+              <receiver android:name=".BootReceiver" android:exported="false">
+                <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter>
+              </receiver>
+            </application>
+          </manifest>
+          EOF
+
+          cat > trainmonitor/app/src/main/res/values/styles.xml <<'EOF'
+          <resources><style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar"><item name="android:fontFamily">sans</item></style></resources>
+          EOF
+
+          cat > trainmonitor/app/src/main/res/layout/activity_main.xml <<'EOF'
+          <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="24dp" android:gravity="center">
+            <TextView android:id="@+id/status" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="🚆 Поїзд 41/42\nДніпро-Головний → Трускавець\nПеревірка кожні 3 хвилини" android:textSize="22sp" android:gravity="center" android:padding="16dp"/>
+            <Button android:id="@+id/start" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Увімкнути моніторинг"/>
+            <Button android:id="@+id/stop" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Зупинити" android:layout_marginTop="12dp"/>
+          </LinearLayout>
+          EOF
+
+          cat > trainmonitor/app/src/main/java/com/kalus/trainmonitor/MainActivity.java <<'EOF'
+          package com.kalus.trainmonitor;
+          import android.app.*; import android.os.*; import android.content.*; import android.content.pm.PackageManager; import android.Manifest; import android.widget.*;
+          public class MainActivity extends Activity {
+            public void onCreate(Bundle b){ super.onCreate(b); setContentView(R.layout.activity_main);
+              Button s=findViewById(R.id.start), x=findViewById(R.id.stop); TextView t=findViewById(R.id.status);
+              s.setOnClickListener(v->{ if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED) requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},1); Intent i=new Intent(this,TrainMonitorService.class); i.setAction("START"); if(Build.VERSION.SDK_INT>=26) startForegroundService(i); else startService(i); t.setText("✅ Моніторинг працює\nПеревірка кожні 3 хвилини"); });
+              x.setOnClickListener(v->{ Intent i=new Intent(this,TrainMonitorService.class); i.setAction("STOP"); startService(i); t.setText("⏹ Моніторинг зупинено"); });
+            }
+          }
+          EOF
+
+          cat > trainmonitor/app/src/main/java/com/kalus/trainmonitor/BootReceiver.java <<'EOF'
+          package com.kalus.trainmonitor;
+          import android.content.*; import android.os.*;
+          public class BootReceiver extends BroadcastReceiver { public void onReceive(Context c,Intent i){ if(Intent.ACTION_BOOT_COMPLETED.equals(i.getAction()) && c.getSharedPreferences("t",0).getBoolean("on",false)){ Intent s=new Intent(c,TrainMonitorService.class); s.setAction("START"); if(Build.VERSION.SDK_INT>=26)c.startForegroundService(s);else c.startService(s); } } }
+          EOF
+
+          cat > trainmonitor/app/src/main/java/com/kalus/trainmonitor/TrainMonitorService.java <<'EOF'
+          package com.kalus.trainmonitor;
+          import android.app.*; import android.content.*; import android.os.*; import java.net.*; import java.io.*; import java.util.*; import java.util.concurrent.*; import java.util.regex.*; import java.text.*;
+          public class TrainMonitorService extends Service {
+            static final String CH="train41"; ScheduledExecutorService ex; String last=null;
+            public void onCreate(){super.onCreate(); if(Build.VERSION.SDK_INT>=26){NotificationChannel c=new NotificationChannel(CH,"Поїзд 41/42",NotificationManager.IMPORTANCE_DEFAULT); ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(c);}}
+            public int onStartCommand(Intent i,int f,int id){ if(i!=null&&"STOP".equals(i.getAction())){getSharedPreferences("t",0).edit().putBoolean("on",false).apply(); if(ex!=null)ex.shutdownNow(); stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); return START_NOT_STICKY;} getSharedPreferences("t",0).edit().putBoolean("on",true).apply(); startForeground(4142,n("Запуск…","Отримую дані УЗ",true)); if(ex==null||ex.isShutdown()){ex=Executors.newSingleThreadScheduledExecutor(); ex.scheduleWithFixedDelay(this::check,0,180,TimeUnit.SECONDS);} return START_STICKY; }
+            void check(){ try{ String h=get("https://uz-vezemo.uz.gov.ua/delayform/"); String txt=h.replaceAll("(?is)<script.*?</script>"," ").replaceAll("(?is)<style.*?</style>"," ").replaceAll("(?is)<[^>]+>"," ").replace("&nbsp;"," ").replace("&rarr;","→").replaceAll("\\s+"," "); Pattern p=Pattern.compile("41\\s*/\\s*42.*?10\\.09.*?Дніпро-Головний.*?Трускавець.*?(\\+\\d{1,2}:\\d{2}).*?(\\d{1,2}:\\d{2}).*?(\\d{1,2}:\\d{2}).*?(В дорозі|Готується)",Pattern.CASE_INSENSITIVE); Matcher m=p.matcher(txt); if(!m.find()) throw new IOException("41/42 not found"); String d=m.group(1), eta=m.group(2), st=m.group(4); String tm=new SimpleDateFormat("HH:mm",Locale.getDefault()).format(new Date()); ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(4142,n("Затримка: "+d+" • "+st,"Трускавець: "+eta+" • оновлено "+tm,true)); if(last!=null&&!last.equals(d))((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(4242,n("Змінилась затримка","Було "+last+" → стало "+d+" • Трускавець "+eta,false)); last=d; }catch(Exception e){ String tm=new SimpleDateFormat("HH:mm",Locale.getDefault()).format(new Date()); ((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(4142,n("Немає нового значення","Повторю через 3 хв • "+tm,true)); }}
+            String get(String u)throws Exception{HttpURLConnection c=(HttpURLConnection)new URL(u).openConnection();c.setConnectTimeout(15000);c.setReadTimeout(15000);c.setRequestProperty("User-Agent","Mozilla/5.0 Android KalusTrain");InputStream in=c.getInputStream();ByteArrayOutputStream o=new ByteArrayOutputStream();byte[]b=new byte[8192];for(int n;(n=in.read(b))>0;)o.write(b,0,n);in.close();c.disconnect();return o.toString("UTF-8");}
+            Notification n(String a,String b,boolean ongoing){Intent o=new Intent(this,MainActivity.class);PendingIntent pi=PendingIntent.getActivity(this,1,o,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);return new Notification.Builder(this,CH).setSmallIcon(android.R.drawable.ic_menu_mylocation).setContentTitle("🚆 Поїзд 41/42").setContentText(a).setStyle(new Notification.BigTextStyle().bigText(a+"\n"+b)).setContentIntent(pi).setOngoing(ongoing).setOnlyAlertOnce(ongoing).setAutoCancel(!ongoing).build();}
+            public android.os.IBinder onBind(Intent i){return null;} public void onDestroy(){if(ex!=null)ex.shutdownNow();super.onDestroy();}
+          }
+          EOF
+
+      - name: Build APK
+        working-directory: trainmonitor
+        run: gradle assembleDebug
+
+      - name: Rename APK
+        run: cp trainmonitor/app/build/outputs/apk/debug/app-debug.apk KalusTrain.apk
+
+      - name: Upload ready APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: KalusTrain-APK
+          path: KalusTrain.apk
