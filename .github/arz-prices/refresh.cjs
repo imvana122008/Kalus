@@ -65,6 +65,13 @@ async function main() {
   if (!response.ok) throw new Error(`Watchlist HTTP ${response.status}`);
   const { items } = await response.json();
   if (!Array.isArray(items)) throw new Error('Invalid watchlist');
+  const catalogProbe = await fetch('https://wiki.arz-mcr.ru/api/items?offset=0&limit=1000&slot=all&type=all');
+  const catalogData = await catalogProbe.json();
+  console.log('CATALOG_PROBE', catalogProbe.status, catalogData.total, catalogData.items?.length, catalogData.limit, catalogData.hasMore);
+  const bulkProbe = await fetch('https://wiki.arz-mcr.ru/api/items/prices?id=1766,1852');
+  console.log('BULK_PROBE', bulkProbe.status, (await bulkProbe.text()).slice(0,300));
+  const single = await (await fetch('https://wiki.arz-mcr.ru/api/items/prices?id=1766')).json();
+  console.log('PRICE_SHAPE', Object.keys(single), JSON.stringify(single.servers?.find(x => x.server === 4)), JSON.stringify(single.overall || single.summary || single.median));
   const selected = items.slice(0, 6);
   if (!selected.length) throw new Error('Watchlist empty');
   const token = await githubIdentity();
