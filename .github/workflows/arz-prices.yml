@@ -26,6 +26,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install browser client
         run: npm install --prefix .github/arz-prices --no-save --silent playwright-core@1.55.0
+      - name: Cache day
+        id: day
+        run: echo "today=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: .github/arz-prices/catalog.json
+          key: wiki-items-${{ steps.day.outputs.today }}
       - name: Verify price parser
         run: node --test .github/arz-prices/refresh.test.cjs
       - name: Update Site price cache
