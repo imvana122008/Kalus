@@ -1,6 +1,5 @@
 'use strict';
 const {chromium}=require('playwright-core');
-const fs=require('node:fs');
 const SITE='https://kalus-price-hub.imvana122008.chatgpt.site';
 
 function parseWikiApiPrice(data,itemId,at=Date.now()) {
@@ -32,39 +31,19 @@ async function githubIdentity(){
 }
 
 async function wikiGet(page,path){
-  for(let attempt=0;attempt<6;attempt++){
+  for(let attempt=0;attempt<3;attempt++){
     const result=await page.evaluate(async path=>{
       const r=await fetch(path,{headers:{accept:'application/json'}});
       return {status:r.status,retryAfter:r.headers.get('retry-after'),data:r.ok?await r.json():null};
     },path);
     if(result.status===200)return result.data;
-    if(result.status!==429||attempt===5)throw Error(`${path.split('?')[0]} HTTP ${result.status}`);
-    const retrySeconds=Number(result.retryAfter)||Math.min(30,2**(attempt+1));
-    await new Promise(resolve=>setTimeout(resolve,Math.min(60000,retrySeconds*1000)));
+    if(result.status!==429||attempt===2)throw Error(`${path.split('?')[0]} HTTP ${result.status}`);
+    const retrySeconds=Number(result.retryAfter)||Math.min(10,2**(attempt+1));
+    await new Promise(resolve=>setTimeout(resolve,Math.min(20000,retrySeconds*1000)));
   }
 }
 
-async function getCatalog(page){
-  try{
-    const saved=JSON.parse(fs.readFileSync('.github/arz-prices/catalog.json','utf8'));
-    if(Array.isArray(saved.items)&&saved.items.length>9000&&Date.now()-saved.at<86400000){
-      console.log(`Restored ${saved.items.length} catalog IDs from daily cache`);
-      return saved.items;
-    }
-  }catch(_){/* first run or expired cache */}
-  const first=await wikiGet(page,'/api/items?offset=0&limit=60&slot=all&type=all');
-  if(!Number.isInteger(first.total)||first.total<1||!Array.isArray(first.items))throw Error('Invalid catalog');
-  const all=[...first.items];
-  for(let offset=60;offset<first.total;offset+=60){
-    await new Promise(resolve=>setTimeout(resolve,1200));
-    const data=await wikiGet(page,`/api/items?offset=${offset}&limit=60&slot=all&type=all`);
-    all.push(...data.items);
-  }
-  const catalog=[...new Map(all.filter(x=>Number.isInteger(x.id)&&x.id>0).map(x=>[x.id,x])).values()];
-  if(catalog.length!==first.total)throw Error(`Catalog incomplete: ${catalog.length}/${first.total}`);
-  fs.writeFileSync('.github/arz-prices/catalog.json',JSON.stringify({at:Date.now(),items:catalog}));
-  return catalog;
-}
+function getCandidateIds(){return Array.from({length:12000},(_,i)=>({id:i+1,name:`Предмет ${i+1}`}));}
 
 async function importBatch(items,token){
   if(!items.length)return;
@@ -80,25 +59,27 @@ async function main(){
   try{
     const page=await browser.newPage();
     await page.goto('https://wiki.arz-mcr.ru/items/1766',{waitUntil:'domcontentloaded',timeout:25000});
-    const catalog=await getCatalog(page),full=process.env.FULL_SCAN==='true';
-    const batchSize=full?catalog.length:Math.min(300,catalog.length);
+    const catalog=getCandidateIds(),full=process.env.FULL_SCAN==='true';
+    const batchSize=full?catalog.length:100;
     const cursor=full?0:(Math.floor(Date.now()/1800000)*batchSize)%catalog.length;
     const {items}=selectForRefresh(catalog,watched||[],cursor,full?catalog.length+100:batchSize);
     console.log(`Catalog ${catalog.length}; selected ${items.length}; full scan ${full}; cursor ${cursor}`);
-    let updated=0,unknown=0,failed=0,pending=[];
+    let updated=0,unknown=0,failed=0,pending=[],rateLimited=false;
     for(let i=0;i<items.length;i+=2){
       const group=items.slice(i,i+2);
       const results=await Promise.all(group.map(async item=>{try{return {item,data:await wikiGet(page,`/api/items/prices?id=${item.id}`)}}catch(e){return {item,error:e.message}}}));
       for(const {item,data,error} of results){
-        if(error){failed++;if(failed<12)console.warn(`ID ${item.id}: ${error}`);continue;}
+        if(error){if(/HTTP (400|404)$/.test(error)){unknown++;continue;}failed++;if(failed<12)console.warn(`ID ${item.id}: ${error}`);if(error.includes('429'))rateLimited=true;continue;}
         const record=parseWikiApiPrice(data,item.id);
         if(!record){unknown++;continue;}pending.push(record);
       }
-      if(pending.length>=40||i+2>=items.length){while(pending.length){const batch=pending.splice(0,40);await importBatch(batch,token);updated+=batch.length;}}
+      if(pending.length>=10||i+2>=items.length||rateLimited){while(pending.length){const batch=pending.splice(0,40);await importBatch(batch,token);updated+=batch.length;}}
       if((i+2)%100===0)console.log(`Progress ${Math.min(i+2,items.length)}/${items.length}; prices ${updated}; unknown ${unknown}; errors ${failed}`);
+      if(rateLimited)break;
       await new Promise(resolve=>setTimeout(resolve,800));
     }
     console.log(`Complete: ${updated} prices, ${unknown} without price, ${failed} errors of ${items.length}`);
+    if(rateLimited)throw Error('Wiki price API rate limit (429), retry next scheduled run');
     if(failed>items.length/4)throw Error('Wiki price API failed for over 25% of items');
   }finally{await browser.close();}
 }
