@@ -54,21 +54,15 @@ async function importBatch(items,token){
 async function main(){
   const r=await fetch(SITE+'/api/watchlist',{headers:{'Cache-Control':'no-cache'}});
   if(!r.ok)throw Error(`Watchlist HTTP ${r.status}`);
-  try {
-    const market=await fetch('https://api.arizonamarket.fun/market?server=4',{signal:AbortSignal.timeout(15000)});
-    const body=await market.json();
-    console.log('MARKET_PROBE',market.status,body.count,body.listings?.length,new Set(body.listings?.map(x=>x.item)).size,body.listings?.[0]?.server,market.status!==200?JSON.stringify(body).slice(0,350):'');
-  }catch(e){console.warn('MARKET_PROBE_FAILED',e.message)}
   const {items:watched}=await r.json(),token=await githubIdentity();
   const browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
   try{
     const page=await browser.newPage();
     await page.goto('https://wiki.arz-mcr.ru/items/1766',{waitUntil:'domcontentloaded',timeout:25000});
-    const catalog=getCandidateIds(),full=process.env.FULL_SCAN==='true';
-    const batchSize=full?catalog.length:100;
-    const cursor=full?0:(Math.floor(Date.now()/1800000)*batchSize)%catalog.length;
-    const {items}=selectForRefresh(catalog,watched||[],cursor,full?catalog.length+100:batchSize);
-    console.log(`Catalog ${catalog.length}; selected ${items.length}; full scan ${full}; cursor ${cursor}`);
+    const catalog=getCandidateIds(),batchSize=12;
+    const cursor=(Math.floor(Date.now()/1800000)*batchSize)%catalog.length;
+    const {items}=selectForRefresh(catalog,watched||[],cursor,batchSize);
+    console.log(`Candidate ID range 1..${catalog.length}; selected ${items.length}; cursor ${cursor}`);
     let updated=0,unknown=0,failed=0,pending=[],rateLimited=false;
     for(let i=0;i<items.length;i+=2){
       const group=items.slice(i,i+2);
