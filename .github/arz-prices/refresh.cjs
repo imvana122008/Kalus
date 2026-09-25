@@ -57,7 +57,7 @@ async function main(){
   try {
     const market=await fetch('https://api.arizonamarket.fun/market?server=4',{signal:AbortSignal.timeout(15000)});
     const body=await market.json();
-    console.log('MARKET_PROBE',market.status,body.count,body.listings?.length,new Set(body.listings?.map(x=>x.item)).size,body.listings?.[0]?.server);
+    console.log('MARKET_PROBE',market.status,body.count,body.listings?.length,new Set(body.listings?.map(x=>x.item)).size,body.listings?.[0]?.server,market.status!==200?JSON.stringify(body).slice(0,350):'');
   }catch(e){console.warn('MARKET_PROBE_FAILED',e.message)}
   const {items:watched}=await r.json(),token=await githubIdentity();
   const browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
