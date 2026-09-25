@@ -26,6 +26,22 @@ async function githubIdentity() {
 async function scrape(browser, item) {
   const page = await browser.newPage();
   try {
+    if (Number(item.itemId) === 1766) {
+      page.on('response', async r => {
+        try {
+          const u = new URL(r.url());
+          if (u.hostname !== 'wiki.arz-mcr.ru') return;
+          const type = r.headers()['content-type'] || '';
+          if (!/json|text\/html/.test(type)) return;
+          const body = await r.text();
+          let shape = '';
+          if (/json/.test(type)) {
+            try { const obj = JSON.parse(body); shape = Array.isArray(obj) ? `array:${obj.length}` : `keys:${Object.keys(obj).slice(0,10).join(',')}`; } catch (_) {}
+          }
+          console.log(`WIKI_RESPONSE ${r.status()} ${u.pathname} type=${type.split(';')[0]} bytes=${body.length} ${shape}`);
+        } catch (_) {}
+      });
+    }
     const id = Number(item.itemId);
     if (!Number.isInteger(id) || id < 1 || id > 99999) throw new Error('Invalid item ID');
     await page.goto(`https://wiki.arz-mcr.ru/items/${id}`, { waitUntil: 'domcontentloaded', timeout: 19000 });
