@@ -77,6 +77,10 @@ async function main(){
   if(!watchResponse.ok||!cursorResponse.ok)throw Error(`Site HTTP ${watchResponse.status}/${cursorResponse.status}`);
   const {items:watched}=await watchResponse.json(),state=await cursorResponse.json(),token=await githubIdentity();
   if(!Number.isInteger(state.nextId)||state.nextId<1||state.nextId>12000)throw Error('Invalid saved cursor');
+  if(process.env.GITHUB_EVENT_NAME==='schedule' && state.updatedAt && Date.now()-state.updatedAt<20*60*1000){
+    console.log('Recent scan already finished; skip duplicate scheduled run');
+    return;
+  }
   const browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
   try{
     const page=await browser.newPage();
