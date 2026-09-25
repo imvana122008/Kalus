@@ -50,6 +50,15 @@ async function scrape(browser, item) {
     await page.goto(`https://wiki.arz-mcr.ru/items/${id}`, { waitUntil: 'domcontentloaded', timeout: 19000 });
     const row = page.getByRole('button', { name: /4\.\s*Chandler.*продажа.*скупка/i });
     await row.waitFor({ state: 'visible', timeout: 19000 });
+    if (id === 1766) {
+      const probe = await page.evaluate(async () => {
+        const catalog = await fetch('/api/items?offset=0&limit=1000&slot=all&type=all').then(async r => ({status:r.status,data:await r.json()}));
+        const bulk = await fetch('/api/items/prices?id=1766,1852').then(async r => ({status:r.status,data:await r.json()}));
+        const single = await fetch('/api/items/prices?id=1766').then(r => r.json());
+        return {catalog:{status:catalog.status,total:catalog.data.total,limit:catalog.data.limit,count:catalog.data.items?.length,hasMore:catalog.data.hasMore},bulk:{status:bulk.status,keys:Object.keys(bulk.data),error:bulk.data.error,ids:bulk.data.itemId},single:{keys:Object.keys(single),chandler:single.servers?.find(x=>x.server===4),median:single.medianSale,overall:single.overall}};
+      });
+      console.log('BROWSER_PROBE', JSON.stringify(probe));
+    }
     const main = page.locator('main');
     const doc = {
       text: await main.innerText(),
@@ -65,13 +74,6 @@ async function main() {
   if (!response.ok) throw new Error(`Watchlist HTTP ${response.status}`);
   const { items } = await response.json();
   if (!Array.isArray(items)) throw new Error('Invalid watchlist');
-  const catalogProbe = await fetch('https://wiki.arz-mcr.ru/api/items?offset=0&limit=1000&slot=all&type=all');
-  const catalogData = await catalogProbe.json();
-  console.log('CATALOG_PROBE', catalogProbe.status, catalogData.total, catalogData.items?.length, catalogData.limit, catalogData.hasMore);
-  const bulkProbe = await fetch('https://wiki.arz-mcr.ru/api/items/prices?id=1766,1852');
-  console.log('BULK_PROBE', bulkProbe.status, (await bulkProbe.text()).slice(0,300));
-  const single = await (await fetch('https://wiki.arz-mcr.ru/api/items/prices?id=1766')).json();
-  console.log('PRICE_SHAPE', Object.keys(single), JSON.stringify(single.servers?.find(x => x.server === 4)), JSON.stringify(single.overall || single.summary || single.median));
   const selected = items.slice(0, 6);
   if (!selected.length) throw new Error('Watchlist empty');
   const token = await githubIdentity();
