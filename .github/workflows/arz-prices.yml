@@ -1,12 +1,6 @@
 name: Arizona item prices
 on:
-  schedule:
-    - cron: '17,47 * * * *'
   workflow_dispatch:
-  push:
-    paths:
-      - '.github/workflows/arz-prices.yml'
-      - '.github/arz-prices/**'
 permissions:
   contents: read
   id-token: write
