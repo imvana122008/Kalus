@@ -1,0 +1,25 @@
+name: Arizona item prices
+on:
+  schedule:
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/arz-prices.yml'
+      - '.github/arz-prices/**'
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: arz-prices-sync
+  cancel-in-progress: false
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install browser client
+        run: npm install --prefix .github/arz-prices --no-save --silent playwright-core@1.55.0
+      - name: Update Site price cache
+        run: node .github/arz-prices/refresh.cjs
