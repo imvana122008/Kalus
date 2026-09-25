@@ -81,7 +81,7 @@ async function main(){
   try{
     const page=await browser.newPage();
     const catalog=getCandidateIds(),cursor=state.nextId-1;
-    const selected=selectForRefresh(catalog,watched||[],cursor,10,2,Math.floor(Date.now()/1800000));
+    const selected=selectForRefresh(catalog,watched||[],cursor,6,1,Math.floor(Date.now()/1800000));
     console.log(`Sequential range 1..${catalog.length}; next ID ${state.nextId}; priority ${selected.watchedItems.length}; scanning ${selected.scanItems.length}`);
     let updated=0,unknown=0,scanned=0;
     const checked=new Map();
@@ -89,7 +89,14 @@ async function main(){
       let record;
       if(checked.has(item.id))record=checked.get(item.id);
       else{
-        record=await scrapeRenderedItem(page,item.id);
+        try{record=await scrapeRenderedItem(page,item.id);}
+        catch(e){
+          if(String(e.message).includes('Wiki rate limit (429)')){
+            console.log(`Wiki rate limited; saved progress through ${scanned} sequential IDs; will continue next run`);
+            break;
+          }
+          throw e;
+        }
         checked.set(item.id,record);
         if(record){await importBatch([record],token);updated++;}else unknown++;
         await new Promise(resolve=>setTimeout(resolve,900));
