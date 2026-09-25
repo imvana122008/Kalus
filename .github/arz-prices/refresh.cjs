@@ -2,24 +2,30 @@
 const {chromium}=require('playwright-core');
 const SITE='https://kalus-price-hub.imvana122008.chatgpt.site';
 
-function parseWikiApiPrice(data,itemId,at=Date.now()) {
-  if(data?.itemId!==itemId||data.unknown||!Array.isArray(data.servers))return null;
-  const servers=data.servers.filter(s=>s.server>0&&s.status==='ok'&&(s.sell?.avg>0||s.buy?.avg>0));
-  const sells=servers.map(s=>Math.round(s.sell?.avg||0)).filter(Boolean).sort((a,b)=>a-b);
-  const mid=Math.floor(sells.length/2);
-  const medianSale=sells.length?Math.round(sells.length%2?sells[mid]:(sells[mid-1]+sells[mid])/2):0;
-  const chandler=data.servers.find(s=>s.server===4);
-  const sellPrice=Math.round(chandler?.sell?.avg||0),buyPrice=Math.round(chandler?.buy?.avg||0);
+function parseWikiPagePrice(doc,itemId,at=Date.now()) {
+  const number=raw=>Number(String(raw||'').replace(/[^0-9]/g,''))||0;
+  const medianSale=number(doc.text.match(/Медиана продажи\s*([\d\s\u00a0]+\s*\$)/i)?.[1]);
+  const chandler=doc.row.match(/продажа\s*([\d\s\u00a0]+)\s*\$.*?скупка\s*([\d\s\u00a0]+)\s*\$/i);
+  const sellPrice=number(chandler?.[1]),buyPrice=number(chandler?.[2]);
   if(!medianSale&&!sellPrice&&!buyPrice)return null;
-  return {itemId,itemName:String(data.name||`Предмет ${itemId}`).slice(0,180),medianSale,sellPrice,buyPrice,serverCount:servers.length,at};
+  return {itemId,itemName:String(doc.name||`Предмет ${itemId}`).slice(0,180),medianSale,sellPrice,buyPrice,serverCount:Number(doc.text.match(/Цены есть на\s*(\d+)/i)?.[1]||0),at};
 }
 
-function selectForRefresh(catalog,watched,cursor,limit){
-  const byId=new Map(catalog.map(x=>[x.id,x])),selected=new Map();
-  for(const x of watched){const id=Number(x.itemId);if(id>0&&!selected.has(id)&&selected.size<limit)selected.set(id,byId.get(id)||{id,name:x.itemName||`Предмет ${id}`});}
-  let checked=0;
-  while(checked<catalog.length&&selected.size<limit){const x=catalog[(cursor+checked)%catalog.length];if(!selected.has(x.id))selected.set(x.id,x);checked++;}
-  return {items:[...selected.values()],nextCursor:catalog.length?(cursor+checked)%catalog.length:0};
+function selectForRefresh(catalog,watched,cursor,scanCount,watchedCount=2,watchCursor=0){
+  const byId=new Map(catalog.map(x=>[x.id,x])),selected=new Map(),watchedItems=[],scanItems=[];
+  for(let i=0;i<Math.min(watchedCount,watched.length);i++){
+    const x=watched[(watchCursor+i)%watched.length],id=Number(x.itemId);
+    if(id>0&&!selected.has(id)){
+      const item=byId.get(id)||{id,name:x.itemName||`Предмет ${id}`};
+      selected.set(id,item);watchedItems.push(item);
+    }
+  }
+  for(let i=0;i<Math.min(scanCount,catalog.length);i++){
+    const x=catalog[(cursor+i)%catalog.length];
+    scanItems.push(x);
+    if(!selected.has(x.id))selected.set(x.id,x);
+  }
+  return {items:[...selected.values()],watchedItems,scanItems,nextCursor:catalog.length?(cursor+scanCount)%catalog.length:0};
 }
 
 async function githubIdentity(){
@@ -30,17 +36,24 @@ async function githubIdentity(){
   const {value}=await r.json();if(!value)throw Error('GitHub identity missing');return value;
 }
 
-async function wikiGet(page,path){
-  for(let attempt=0;attempt<3;attempt++){
-    const result=await page.evaluate(async path=>{
-      const r=await fetch(path,{headers:{accept:'application/json'}});
-      return {status:r.status,retryAfter:r.headers.get('retry-after'),data:r.ok?await r.json():null};
-    },path);
-    if(result.status===200)return result.data;
-    if(result.status!==429||attempt===2)throw Error(`${path.split('?')[0]} HTTP ${result.status}`);
-    const retrySeconds=Number(result.retryAfter)||Math.min(10,2**(attempt+1));
-    await new Promise(resolve=>setTimeout(resolve,Math.min(20000,retrySeconds*1000)));
-  }
+async function scrapeRenderedItem(page,itemId){
+  let rateLimited=false;
+  const onResponse=r=>{if(r.status()===429&&new URL(r.url()).hostname==='wiki.arz-mcr.ru')rateLimited=true;};
+  page.on('response',onResponse);
+  try{
+    const response=await page.goto(`https://wiki.arz-mcr.ru/items/${itemId}`,{waitUntil:'domcontentloaded',timeout:20000});
+    if(response?.status()===404)return null;
+    const row=page.getByRole('button',{name:/4\.\s*Chandler.*продажа.*скупка/i});
+    try{await row.waitFor({state:'visible',timeout:6000});}
+    catch(e){if(rateLimited)throw Error('Wiki rate limit (429)');return null;}
+    if(rateLimited)throw Error('Wiki rate limit (429)');
+    const main=page.locator('main');
+    return parseWikiPagePrice({
+      text:await main.innerText(),
+      row:await row.getAttribute('aria-label')||await row.innerText(),
+      name:await main.locator('h1').first().innerText()
+    },itemId);
+  }finally{page.off('response',onResponse);}
 }
 
 function getCandidateIds(){return Array.from({length:12000},(_,i)=>({id:i+1,name:`Предмет ${i+1}`}));}
@@ -50,37 +63,43 @@ async function importBatch(items,token){
   const r=await fetch(SITE+'/api/prices/import',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${token}`},body:JSON.stringify({items})});
   if(!r.ok)throw Error(`Import HTTP ${r.status}: ${(await r.text()).slice(0,150)}`);
 }
+async function advanceCursor(previousId,token){
+  const nextId=previousId%12000+1;
+  const r=await fetch(SITE+'/api/sync-state',{method:'POST',headers:{'content-type':'application/json',authorization:`Bearer ${token}`},body:JSON.stringify({previousId,nextId})});
+  if(!r.ok)throw Error(`Cursor HTTP ${r.status}: ${(await r.text()).slice(0,120)}`);
+}
 
 async function main(){
-  const r=await fetch(SITE+'/api/watchlist',{headers:{'Cache-Control':'no-cache'}});
-  if(!r.ok)throw Error(`Watchlist HTTP ${r.status}`);
-  const {items:watched}=await r.json(),token=await githubIdentity();
+  const [watchResponse,cursorResponse]=await Promise.all([
+    fetch(SITE+'/api/watchlist',{headers:{'Cache-Control':'no-cache'}}),
+    fetch(SITE+'/api/sync-state',{headers:{'Cache-Control':'no-cache'}})
+  ]);
+  if(!watchResponse.ok||!cursorResponse.ok)throw Error(`Site HTTP ${watchResponse.status}/${cursorResponse.status}`);
+  const {items:watched}=await watchResponse.json(),state=await cursorResponse.json(),token=await githubIdentity();
+  if(!Number.isInteger(state.nextId)||state.nextId<1||state.nextId>12000)throw Error('Invalid saved cursor');
   const browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
   try{
     const page=await browser.newPage();
-    await page.goto('https://wiki.arz-mcr.ru/items/1766',{waitUntil:'domcontentloaded',timeout:25000});
-    const catalog=getCandidateIds(),batchSize=12;
-    const cursor=(Math.floor(Date.now()/1800000)*batchSize)%catalog.length;
-    const {items}=selectForRefresh(catalog,watched||[],cursor,batchSize);
-    console.log(`Candidate ID range 1..${catalog.length}; selected ${items.length}; cursor ${cursor}`);
-    let updated=0,unknown=0,failed=0,pending=[],rateLimited=false;
-    for(let i=0;i<items.length;i+=2){
-      const group=items.slice(i,i+2);
-      const results=await Promise.all(group.map(async item=>{try{return {item,data:await wikiGet(page,`/api/items/prices?id=${item.id}`)}}catch(e){return {item,error:e.message}}}));
-      for(const {item,data,error} of results){
-        if(error){if(/HTTP (400|404)$/.test(error)){unknown++;continue;}failed++;if(failed<12)console.warn(`ID ${item.id}: ${error}`);if(error.includes('429'))rateLimited=true;continue;}
-        const record=parseWikiApiPrice(data,item.id);
-        if(!record){unknown++;continue;}pending.push(record);
+    const catalog=getCandidateIds(),cursor=state.nextId-1;
+    const selected=selectForRefresh(catalog,watched||[],cursor,10,2,Math.floor(Date.now()/1800000));
+    console.log(`Sequential range 1..${catalog.length}; next ID ${state.nextId}; priority ${selected.watchedItems.length}; scanning ${selected.scanItems.length}`);
+    let updated=0,unknown=0,scanned=0;
+    const checked=new Map();
+    for(const item of [...selected.watchedItems,...selected.scanItems]){
+      let record;
+      if(checked.has(item.id))record=checked.get(item.id);
+      else{
+        record=await scrapeRenderedItem(page,item.id);
+        checked.set(item.id,record);
+        if(record){await importBatch([record],token);updated++;}else unknown++;
+        await new Promise(resolve=>setTimeout(resolve,900));
       }
-      if(pending.length>=10||i+2>=items.length||rateLimited){while(pending.length){const batch=pending.splice(0,40);await importBatch(batch,token);updated+=batch.length;}}
-      if((i+2)%100===0)console.log(`Progress ${Math.min(i+2,items.length)}/${items.length}; prices ${updated}; unknown ${unknown}; errors ${failed}`);
-      if(rateLimited)break;
-      await new Promise(resolve=>setTimeout(resolve,800));
+      if(selected.scanItems[scanned]?.id===item.id && item===selected.scanItems[scanned]){
+        await advanceCursor(item.id,token);scanned++;
+      }
     }
-    console.log(`Complete: ${updated} prices, ${unknown} without price, ${failed} errors of ${items.length}`);
-    if(rateLimited)throw Error('Wiki price API rate limit (429), retry next scheduled run');
-    if(failed>items.length/4)throw Error('Wiki price API failed for over 25% of items');
+    console.log(`Complete: ${updated} prices, ${unknown} without price, ${scanned} sequential IDs checked`);
   }finally{await browser.close();}
 }
 if(require.main===module)main().catch(e=>{console.error(e);process.exitCode=1});
-module.exports={parseWikiApiPrice,selectForRefresh};
+module.exports={parseWikiPagePrice,selectForRefresh};
