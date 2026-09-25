@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
 const content = fs.readFileSync('content.js', 'utf8');
 const background = fs.readFileSync('background.js', 'utf8');
+const access = () => fs.readFileSync('site-access.js', 'utf8');
 
 test('loads only on LogsParser and asks for Wiki access', () => {
   assert.equal(manifest.manifest_version, 3);
@@ -31,15 +32,16 @@ function loadContent(onMessage = () => {}) {
       onMessage(message, callback);
     } }
   };
-  const hook = 'window.__hoverTest = { parseHoverTrade, pointerOnItemName, loadHoverPrice, parseHoverBtc: typeof parseHoverBtc === "function" ? parseHoverBtc : undefined, pointerOnBtcAmount: typeof pointerOnBtcAmount === "function" ? pointerOnBtcAmount : undefined, loadHoverBtc: typeof loadHoverBtc === "function" ? loadHoverBtc : undefined };';
+  const hook = 'window.__hoverTest = { parseHoverTrade, pointerOnItemName, loadHoverPrice, parseHoverBtc: typeof parseHoverBtc === "function" ? parseHoverBtc : undefined, pointerOnBtcAmount: typeof pointerOnBtcAmount === "function" ? pointerOnBtcAmount : undefined, loadHoverBtc: typeof loadHoverBtc === "function" ? loadHoverBtc : undefined, candidateUnderPointer };';
   const instrumented = content.replace(
     "  if (location.hostname !== 'arizonarp.logsparser.info') return;",
     `  ${hook}\n  if (location.hostname !== 'arizonarp.logsparser.info') return;`
   );
-  vm.runInNewContext(instrumented, { window, document, chrome, NodeFilter: { SHOW_TEXT: 4 },
+  class Element {}
+  vm.runInNewContext(instrumented, { window, document, chrome, NodeFilter: { SHOW_TEXT: 4 }, Element,
     location: { hostname: 'wiki.arz-mcr.ru' }, requestAnimationFrame: fn => fn(),
     setTimeout, clearTimeout, URL, Map, Set, Intl, Date, Number, Math, String });
-  return { requests, tip, document, actions: window.__hoverTest };
+  return { requests, tip, document, actions: window.__hoverTest, Element };
 }
 
 test('loads Chandler sale and buy only after hovering the item name', async () => {
@@ -114,6 +116,34 @@ test('BTC hover is limited to the amount and ticker, not the whole row', () => {
   assert.equal(actions.pointerOnBtcAmount(row, btc, 100, 60), true);
   assert.equal(text.slice(...selected), '694,409 BTC');
   assert.equal(actions.pointerOnBtcAmount(row, btc, 100, 10), false);
+});
+
+test('BTC tooltip works in a non-table row when rendered amount and ticker span lines', () => {
+  const { actions, document, Element } = loadContent();
+  const row = Object.assign(new Element(), { innerText: '2026-08-29 13:38:29 Игрок получил 694,409 BTC, причина: передача BTC', parentElement: null,
+    closest: () => null, textContent: '2026-08-29 13:38:29 Игрок получил 694,409\nBTC, причина: передача BTC' });
+  const text = '694,409 BTC';
+  const leaf = Object.assign(new Element(), { innerText: text, textContent: text, parentElement: row, closest: () => null });
+  document.body = {};
+  document.elementsFromPoint = () => [leaf];
+  document.createTreeWalker = () => ({ nextNode: (() => { let used = false; return () => used ? null : (used = true, { textContent: row.textContent }); })() });
+  document.createRange = () => ({ setStart() {}, setEnd() {}, getClientRects() { return [{ left: 50, right: 150, top: 50, bottom: 70, width: 100, height: 20 }]; } });
+  assert.equal(actions.candidateUnderPointer(100, 60).btc.amount, 694.409);
+});
+
+test('only the site origin gets an extension presence response', () => {
+  assert.deepEqual(manifest.content_scripts[1].matches, ['https://kalus-price-hub.imvana122008.chatgpt.site/*']);
+  let onMessage;
+  const posted = [];
+  const window = { location: { origin: 'https://kalus-price-hub.imvana122008.chatgpt.site' },
+    addEventListener: (_, listener) => { onMessage = listener; },
+    postMessage: (...values) => posted.push(values) };
+  vm.runInNewContext(access(), { window, chrome: { runtime: { id: 'installed-extension' } } });
+  onMessage({ source: window, origin: window.location.origin, data: { type: 'kalus:site:check', nonce: 'random-challenge' } });
+  assert.equal(posted[0][0].type, 'kalus:site:ready');
+  assert.equal(posted[0][0].nonce, 'random-challenge');
+  onMessage({ source: window, origin: 'https://other.example', data: { type: 'kalus:site:check', nonce: 'wrong-origin' } });
+  assert.equal(posted.length, 1);
 });
 
 test('BTC tooltip calculates approximate game dollars and displays the price timestamp', async () => {

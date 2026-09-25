@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Arizona RP — цены Chandler",
   "description": "Цены предметов Chandler и историческая оценка BTC в игровых долларах при наведении в логах.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "permissions": ["storage"],
   "host_permissions": ["https://wiki.arz-mcr.ru/*", "https://api.exchange.coinbase.com/*", "https://api.coingecko.com/*"],
   "content_scripts": [
@@ -11,6 +11,11 @@
       "js": ["content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://kalus-price-hub.imvana122008.chatgpt.site/*"],
+      "js": ["site-access.js"],
+      "run_at": "document_start"
     }
   ],
   "background": {

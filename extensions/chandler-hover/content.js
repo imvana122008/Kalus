@@ -143,7 +143,9 @@
     let node;
     while ((node = walker.nextNode())) {
       for (let i = 0; i < node.textContent.length; i++) {
-        content += node.textContent[i] === '\u00a0' ? ' ' : node.textContent[i];
+        const char = /\s|\u00a0/.test(node.textContent[i]) ? ' ' : node.textContent[i];
+        if (char === ' ' && content.endsWith(' ')) continue;
+        content += char;
         positions.push({ node, offset: i });
       }
     }
