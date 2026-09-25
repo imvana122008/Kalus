@@ -38,6 +38,9 @@ async function scrape(browser, item) {
           if (/json/.test(type)) {
             try { const obj = JSON.parse(body); shape = Array.isArray(obj) ? `array:${obj.length}` : `keys:${Object.keys(obj).slice(0,10).join(',')}`; } catch (_) {}
           }
+          if (u.pathname.startsWith('/api/items')) {
+            console.log(`WIKI_API ${u.pathname}${u.search} ${JSON.stringify(JSON.parse(body)).slice(0,600)}`);
+          }
           console.log(`WIKI_RESPONSE ${r.status()} ${u.pathname} type=${type.split(';')[0]} bytes=${body.length} ${shape}`);
         } catch (_) {}
       });
