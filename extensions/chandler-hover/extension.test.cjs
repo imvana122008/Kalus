@@ -92,11 +92,13 @@ test('a rate limit shows a retry message instead of endless loading', async () =
   assert.doesNotMatch(tip.innerHTML, /Загружаю цены/);
 });
 
-test('BTC log parser treats comma as decimal and uses the log time, not today', () => {
+test('BTC log parser treats comma as thousands in the log and uses its historical time', () => {
   const { actions } = loadContent();
   const btc = actions.parseHoverBtc('2026-08-29 13:38:29 Игрок Takeru_Rize получил от игрока [31]Chaice_Root 694,409 BTC, причина: передача BTC (инвентарь)');
   assert.equal(btc.label, '694,409 BTC');
-  assert.equal(btc.amount, 694.409);
+  assert.equal(btc.amount, 694409);
+  assert.equal(actions.parseHoverBtc('2026-08-29 13:38:29 Игрок получил 1,000,000 BTC').amount, 1000000);
+  assert.equal(actions.parseHoverBtc('2026-08-29 13:38:29 Игрок получил 0,5 BTC').amount, 0.5);
   assert.equal(btc.candleTime, Date.UTC(2026, 7, 29, 10));
   assert.equal(actions.parseHoverBtc('Игрок Takeru_Rize получил 694,409 BTC'), null);
   assert.equal(actions.parseHoverBtc('2026-02-30 13:38:29 Игрок получил 1 BTC'), null);
@@ -128,7 +130,7 @@ test('BTC tooltip works in a non-table row when rendered amount and ticker span 
   document.elementsFromPoint = () => [leaf];
   document.createTreeWalker = () => ({ nextNode: (() => { let used = false; return () => used ? null : (used = true, { textContent: row.textContent }); })() });
   document.createRange = () => ({ setStart() {}, setEnd() {}, getClientRects() { return [{ left: 50, right: 150, top: 50, bottom: 70, width: 100, height: 20 }]; } });
-  assert.equal(actions.candidateUnderPointer(100, 60).btc.amount, 694.409);
+  assert.equal(actions.candidateUnderPointer(100, 60).btc.amount, 694409);
 });
 
 test('only the site origin gets an extension presence response', () => {
@@ -155,8 +157,9 @@ test('BTC tooltip calculates approximate game dollars and displays the price tim
   assert.equal(requests.length, 1);
   assert.equal(requests[0].type, 'getBtcRate');
   assert.equal(requests[0].candleTime, Date.UTC(2026, 7, 29, 10));
-  assert.match(tip.innerHTML, /41\.664\.540/);
+  assert.match(tip.innerHTML, /41\.664\.540\.000/);
   assert.match(tip.innerHTML, /694,409 BTC/);
+  assert.match(tip.innerHTML, /694\.409 BTC/);
   assert.match(tip.innerHTML, /29\.08\.2026/);
   assert.match(tip.innerHTML, /Обновлено/);
 });
@@ -166,7 +169,7 @@ test('BTC unavailable historical rate shows a clear message and no made-up dolla
   const btc = actions.parseHoverBtc('2026-08-29 13:38:29 Игрок получил 694,409 BTC');
   await actions.loadHoverBtc({ host: {}, btc }, 100, 100);
   assert.match(tip.innerHTML, /Курс за этот час не найден/);
-  assert.doesNotMatch(tip.innerHTML, /41\.664\.540/);
+  assert.doesNotMatch(tip.innerHTML, /41\.664\.540\.000/);
 });
 
 test('background selects exact historical hourly close and rejects invalid or absent candles', async () => {

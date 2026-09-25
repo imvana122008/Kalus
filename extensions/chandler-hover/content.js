@@ -118,7 +118,7 @@
   function parseHoverBtc(text) {
     const s = normalizeSpace(text);
     const date = s.match(/\b(20\d\d)-(\d\d)-(\d\d)\s+(\d\d):(\d\d):(\d\d)\b/);
-    const quantity = s.match(/\b(\d+(?:[,.]\d+)?)\s*(BTC)\b/i);
+    const quantity = s.match(/\b(\d[\d.,]*)\s*(BTC)\b/i);
     if (!date || !quantity) return null;
     const [, year, month, day, hour, minute, second] = date.map(Number);
     const shownUtc = Date.UTC(year, month - 1, day, hour, minute, second);
@@ -126,7 +126,10 @@
     if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 ||
         check.getUTCDate() !== day || check.getUTCHours() !== hour ||
         check.getUTCMinutes() !== minute || check.getUTCSeconds() !== second) return null;
-    const amount = Number(quantity[1].replace(',', '.'));
+    const value = quantity[1];
+    const grouped = !/^0[.,]/.test(value) && /^\d{1,3}(?:[.,]\d{3})+$/.test(value);
+    if (!grouped && !/^\d+(?:[.,]\d{1,8})?$/.test(value)) return null;
+    const amount = Number(grouped ? value.replace(/[.,]/g, '') : value.replace(',', '.'));
     if (!Number.isFinite(amount) || amount <= 0) return null;
     // LogsParser uses Moscow time; Coinbase candles use UTC.
     const at = shownUtc - 3 * 3600000;
@@ -314,7 +317,7 @@
       <div class="kts-hover-source">${esc(status || 'Курс за этот час не найден. Повтори наведение позже.')}</div>`;
     return `${header}
       <div class="kts-hover-median"><span>Приблизительная сумма в игровых $</span><b>≈ ${btcMoneyFmt(btc.amount * rate.price)} $</b></div>
-      <div class="kts-hover-prices"><div><span>Количество</span><b>${esc(btc.label)}</b></div><div><span>Курс BTC/USD за час</span><b>${btcMoneyFmt(rate.price)} $</b></div></div>
+      <div class="kts-hover-prices"><div><span>Количество</span><b>${new Intl.NumberFormat('de-DE', { maximumFractionDigits: 8 }).format(btc.amount)} BTC</b></div><div><span>Курс BTC/USD за час</span><b>${btcMoneyFmt(rate.price)} $</b></div></div>
       <div class="kts-hover-source">${esc(rate.source || 'Биржевой курс')} • ${esc(btc.logDate)} МСК • Обновлено: ${esc(new Date(rate.at).toLocaleString('ru-RU'))}${status ? ` • ${esc(status)}` : ''}<br>Оценка без комиссии банка Arizona.</div>`;
   }
 
