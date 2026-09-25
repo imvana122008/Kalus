@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Arizona RP — цены Chandler",
+  "description": "Показывает цены предметов Chandler при наведении на название в логах.",
+  "version": "1.0.0",
+  "permissions": ["storage"],
+  "host_permissions": ["https://wiki.arz-mcr.ru/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://arizonarp.logsparser.info/*"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "128": "icon128.png"
+  }
+}

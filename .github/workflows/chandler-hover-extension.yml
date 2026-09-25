@@ -1,0 +1,78 @@
+name: Chandler hover extension
+on:
+  push:
+    paths:
+      - 'extensions/chandler-hover/**'
+      - '.github/workflows/chandler-hover-extension.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify extension
+        run: node --test extension.test.cjs
+        working-directory: extensions/chandler-hover
+  publish:
+    needs: test
+    if: ${{ vars.CWS_PUBLISHER_ID != '' && vars.CWS_EXTENSION_ID != '' }}
+    runs-on: ubuntu-latest
+    env:
+      CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+      CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+      CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+      CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package next version
+        run: |
+          python3 - <<'PY'
+          import json, os, zipfile
+          from pathlib import Path
+          folder = Path('extensions/chandler-hover')
+          manifest = json.loads((folder / 'manifest.json').read_text())
+          manifest['version'] = f"1.0.{os.environ['GITHUB_RUN_NUMBER']}"
+          files = ['manifest.json', 'background.js', 'content.js', 'styles.css', 'icon128.png']
+          with zipfile.ZipFile('extension.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
+              for name in files:
+                  data = json.dumps(manifest, ensure_ascii=False, indent=2).encode() if name == 'manifest.json' else (folder / name).read_bytes()
+                  archive.writestr(name, data)
+          PY
+      - name: Submit update to Chrome Web Store
+        run: |
+          set -euo pipefail
+          if [[ -z "$CWS_CLIENT_ID" || -z "$CWS_CLIENT_SECRET" || -z "$CWS_REFRESH_TOKEN" ]]; then
+            echo 'Set the Chrome Web Store OAuth secrets before publishing.' >&2
+            exit 1
+          fi
+          TOKEN=$(curl --fail --silent --show-error https://oauth2.googleapis.com/token \
+            --data-urlencode "client_id=$CWS_CLIENT_ID" \
+            --data-urlencode "client_secret=$CWS_CLIENT_SECRET" \
+            --data-urlencode "refresh_token=$CWS_REFRESH_TOKEN" \
+            --data-urlencode 'grant_type=refresh_token' | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+          echo "::add-mask::$TOKEN"
+          ITEM="publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID"
+          UPLOAD=$(curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $TOKEN" -X POST -T extension.zip \
+            "https://chromewebstore.googleapis.com/upload/v2/$ITEM:upload")
+          STATE=$(printf '%s' "$UPLOAD" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("uploadState", ""))')
+          if [[ "$STATE" == IN_PROGRESS || "$STATE" == UPLOAD_IN_PROGRESS ]]; then
+            for attempt in {1..12}; do
+              sleep 10
+              STATUS=$(curl --fail-with-body --silent --show-error \
+                -H "Authorization: Bearer $TOKEN" \
+                "https://chromewebstore.googleapis.com/v2/$ITEM:fetchStatus")
+              STATE=$(printf '%s' "$STATUS" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("lastAsyncUploadState", ""))')
+              [[ "$STATE" != IN_PROGRESS && "$STATE" != UPLOAD_IN_PROGRESS ]] && break
+            done
+          fi
+          if [[ "$STATE" != SUCCEEDED && "$STATE" != UPLOAD_SUCCEEDED ]]; then
+            echo "Extension upload did not succeed: $STATE" >&2
+            exit 1
+          fi
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $TOKEN" -X POST \
+            "https://chromewebstore.googleapis.com/v2/$ITEM:publish"
