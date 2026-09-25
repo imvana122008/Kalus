@@ -54,6 +54,11 @@ async function importBatch(items,token){
 async function main(){
   const r=await fetch(SITE+'/api/watchlist',{headers:{'Cache-Control':'no-cache'}});
   if(!r.ok)throw Error(`Watchlist HTTP ${r.status}`);
+  try {
+    const market=await fetch('https://api.arizonamarket.fun/market?server=4',{signal:AbortSignal.timeout(15000)});
+    const body=await market.json();
+    console.log('MARKET_PROBE',market.status,body.count,body.listings?.length,new Set(body.listings?.map(x=>x.item)).size,body.listings?.[0]?.server);
+  }catch(e){console.warn('MARKET_PROBE_FAILED',e.message)}
   const {items:watched}=await r.json(),token=await githubIdentity();
   const browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-sandbox']});
   try{
