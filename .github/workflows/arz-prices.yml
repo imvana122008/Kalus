@@ -3,6 +3,11 @@ on:
   schedule:
     - cron: '17,47 * * * *'
   workflow_dispatch:
+    inputs:
+      full_scan:
+        description: 'Scan the complete Wiki catalog once'
+        type: boolean
+        default: false
   push:
     paths:
       - '.github/workflows/arz-prices.yml'
@@ -16,10 +21,14 @@ concurrency:
 jobs:
   refresh:
     runs-on: ubuntu-24.04
-    timeout-minutes: 1
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Install browser client
         run: npm install --prefix .github/arz-prices --no-save --silent playwright-core@1.55.0
+      - name: Verify price parser
+        run: node --test .github/arz-prices/refresh.test.cjs
       - name: Update Site price cache
+        env:
+          FULL_SCAN: ${{ inputs.full_scan || 'false' }}
         run: node .github/arz-prices/refresh.cjs
