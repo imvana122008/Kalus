@@ -23,6 +23,10 @@
     return new Intl.NumberFormat('ru-RU').format(Math.round(n || 0));
   }
 
+  function btcMoneyFmt(n) {
+    return new Intl.NumberFormat('de-DE').format(Math.round(n || 0));
+  }
+
   let priceCache = {};
   chrome.storage.local.get(PRICE_CACHE_KEY).then(saved => {
     const value = saved[PRICE_CACHE_KEY];
@@ -307,9 +311,9 @@
     if (!rate) return `${header}<div class="kts-hover-median"><span>Приблизительная сумма в игровых $</span><b>—</b></div>
       <div class="kts-hover-source">${esc(status || 'Курс за этот час не найден. Повтори наведение позже.')}</div>`;
     return `${header}
-      <div class="kts-hover-median"><span>Приблизительная сумма в игровых $</span><b>≈ ${moneyFmt(btc.amount * rate.price)} $</b></div>
-      <div class="kts-hover-prices"><div><span>Количество</span><b>${esc(btc.label)}</b></div><div><span>Курс BTC/USD за час</span><b>${moneyFmt(rate.price)} $</b></div></div>
-      <div class="kts-hover-source">Coinbase • ${esc(btc.logDate)} МСК • Обновлено: ${esc(new Date(rate.at).toLocaleString('ru-RU'))}${status ? ` • ${esc(status)}` : ''}<br>Оценка без комиссии банка Arizona.</div>`;
+      <div class="kts-hover-median"><span>Приблизительная сумма в игровых $</span><b>≈ ${btcMoneyFmt(btc.amount * rate.price)} $</b></div>
+      <div class="kts-hover-prices"><div><span>Количество</span><b>${esc(btc.label)}</b></div><div><span>Курс BTC/USD за час</span><b>${btcMoneyFmt(rate.price)} $</b></div></div>
+      <div class="kts-hover-source">${esc(rate.source || 'Биржевой курс')} • ${esc(btc.logDate)} МСК • Обновлено: ${esc(new Date(rate.at).toLocaleString('ru-RU'))}${status ? ` • ${esc(status)}` : ''}<br>Оценка без комиссии банка Arizona.</div>`;
   }
 
   async function loadHoverBtc(candidate, mouseX, mouseY) {
@@ -341,7 +345,7 @@
     let rate = null;
     if (response?.status === 200 && Number(response.price) > 0 &&
         response.candleTime === btc.candleTime) {
-      rate = { price: Number(response.price), at: Date.now() };
+      rate = { price: Number(response.price), source: response.source, at: Date.now() };
       btcCache[String(btc.candleTime)] = rate;
       chrome.storage.local.set({ [BTC_CACHE_KEY]: btcCache }).catch(() => {});
     } else if (cached?.price) rate = cached;

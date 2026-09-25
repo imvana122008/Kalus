@@ -10,7 +10,7 @@ const background = fs.readFileSync('background.js', 'utf8');
 test('loads only on LogsParser and asks for Wiki access', () => {
   assert.equal(manifest.manifest_version, 3);
   assert.deepEqual(manifest.content_scripts[0].matches, ['https://arizonarp.logsparser.info/*']);
-  assert.deepEqual(manifest.host_permissions, ['https://wiki.arz-mcr.ru/*', 'https://api.exchange.coinbase.com/*']);
+  assert.deepEqual(manifest.host_permissions, ['https://wiki.arz-mcr.ru/*', 'https://api.exchange.coinbase.com/*', 'https://api.coingecko.com/*']);
   assert.deepEqual(manifest.permissions, ['storage']);
   assert.ok(fs.existsSync(manifest.icons['128']));
 });
@@ -125,7 +125,7 @@ test('BTC tooltip calculates approximate game dollars and displays the price tim
   assert.equal(requests.length, 1);
   assert.equal(requests[0].type, 'getBtcRate');
   assert.equal(requests[0].candleTime, Date.UTC(2026, 7, 29, 10));
-  assert.match(tip.innerHTML, /41[\s\u00a0]664[\s\u00a0]540/);
+  assert.match(tip.innerHTML, /41\.664\.540/);
   assert.match(tip.innerHTML, /694,409 BTC/);
   assert.match(tip.innerHTML, /29\.08\.2026/);
   assert.match(tip.innerHTML, /Обновлено/);
@@ -136,7 +136,7 @@ test('BTC unavailable historical rate shows a clear message and no made-up dolla
   const btc = actions.parseHoverBtc('2026-08-29 13:38:29 Игрок получил 694,409 BTC');
   await actions.loadHoverBtc({ host: {}, btc }, 100, 100);
   assert.match(tip.innerHTML, /Курс за этот час не найден/);
-  assert.doesNotMatch(tip.innerHTML, /41[\s\u00a0]664[\s\u00a0]540/);
+  assert.doesNotMatch(tip.innerHTML, /41\.664\.540/);
 });
 
 test('background selects exact historical hourly close and rejects invalid or absent candles', async () => {
@@ -163,4 +163,18 @@ test('background selects exact historical hourly close and rejects invalid or ab
   let invalid;
   handler({ type: 'getBtcRate', candleTime: Date.now() + 86400000 }, sender, result => { invalid = result; });
   assert.equal(invalid.status, 400);
+});
+
+test('BTC rate falls back to CoinGecko when Coinbase is unavailable', async () => {
+  let handler;
+  const hour = Date.UTC(2026, 7, 29, 10);
+  const chrome = { runtime: { id: 'extension-id', onMessage: { addListener: fn => { handler = fn; } } } };
+  vm.runInNewContext(background, { chrome, fetch: async url => {
+    if (url.includes('coinbase.com')) throw Error('network blocked');
+    return { status: 200, ok: true, headers: { get: () => null }, json: async () => ({ prices: [[hour, 77649.82]] }) };
+  }, AbortController, setTimeout, clearTimeout, Date, URL });
+  const sender = { id: 'extension-id', url: 'https://arizonarp.logsparser.info/logs' };
+  const response = await new Promise(resolve => handler({ type: 'getBtcRate', candleTime: hour }, sender, resolve));
+  assert.equal(response.price, 77649.82);
+  assert.equal(response.source, 'CoinGecko');
 });
