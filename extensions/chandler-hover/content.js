@@ -3,6 +3,8 @@
 
   const PRICE_CACHE_KEY = 'ktsAutoPriceCacheV7BackgroundSync';
   const PRICE_REFRESH_MS = 30 * 60 * 1000;
+  const BTC_CACHE_KEY = 'ktsHistoricalBtcHourlyV1';
+  const BTC_REFRESH_MS = 24 * 60 * 60 * 1000;
   const wikiRetryQueue = new Map();
   const wikiRetryAttempts = new Map();
   let wikiCooldownUntil = 0;
@@ -25,6 +27,12 @@
   chrome.storage.local.get(PRICE_CACHE_KEY).then(saved => {
     const value = saved[PRICE_CACHE_KEY];
     if (value && typeof value === 'object') priceCache = { ...value, ...priceCache };
+  }).catch(() => {});
+
+  let btcCache = {};
+  chrome.storage.local.get(BTC_CACHE_KEY).then(saved => {
+    const value = saved[BTC_CACHE_KEY];
+    if (value && typeof value === 'object') btcCache = { ...value, ...btcCache };
   }).catch(() => {});
 
   function getPriceCache() {
@@ -50,6 +58,7 @@
     host: null,
     key: '',
     item: null,
+    btc: null,
     token: 0,
     x: 0,
     y: 0,
@@ -102,6 +111,48 @@
     return { itemId, item: itemName, qty };
   }
 
+  function parseHoverBtc(text) {
+    const s = normalizeSpace(text);
+    const date = s.match(/\b(20\d\d)-(\d\d)-(\d\d)\s+(\d\d):(\d\d):(\d\d)\b/);
+    const quantity = s.match(/\b(\d+(?:[,.]\d+)?)\s*(BTC)\b/i);
+    if (!date || !quantity) return null;
+    const [, year, month, day, hour, minute, second] = date.map(Number);
+    const shownUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+    const check = new Date(shownUtc);
+    if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 ||
+        check.getUTCDate() !== day || check.getUTCHours() !== hour ||
+        check.getUTCMinutes() !== minute || check.getUTCSeconds() !== second) return null;
+    const amount = Number(quantity[1].replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) return null;
+    // LogsParser uses Moscow time; Coinbase candles use UTC.
+    const at = shownUtc - 3 * 3600000;
+    if (at > Date.now() || at < Date.UTC(2015, 0, 1)) return null;
+    return { amount, label: quantity[0], candleTime: Math.floor(at / 3600000) * 3600000,
+      logDate: `${String(day).padStart(2, '0')}.${String(month).padStart(2, '0')}.${year} ${[hour, minute, second].map(n => String(n).padStart(2, '0')).join(':')}` };
+  }
+
+  function pointerOnBtcAmount(row, btc, x, y) {
+    if (!row || !btc) return false;
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    const positions = [];
+    let content = '';
+    let node;
+    while ((node = walker.nextNode())) {
+      for (let i = 0; i < node.textContent.length; i++) {
+        content += node.textContent[i] === '\u00a0' ? ' ' : node.textContent[i];
+        positions.push({ node, offset: i });
+      }
+    }
+    const start = content.indexOf(btc.label);
+    if (start < 0 || !positions[start + btc.label.length - 1]) return false;
+    const range = document.createRange();
+    range.setStart(positions[start].node, positions[start].offset);
+    const last = positions[start + btc.label.length - 1];
+    range.setEnd(last.node, last.offset + 1);
+    return [...range.getClientRects()].some(rect =>
+      rect.width > 0 && rect.height > 0 && x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom);
+  }
+
   function pointerOnItemName(row, item, x, y) {
     const name = normalizeSpace(item.item);
     if (!name || !row) return false;
@@ -141,18 +192,19 @@
         if (el.closest('#kts-panel, #kts-hover-price')) continue;
 
         const t = normalizeSpace(el.innerText || el.textContent || '');
-        if (!t || t.length > 3500 || !/\[id:\s*\d+\]/i.test(t)) continue;
+        if (!t || t.length > 3500 || !(/\[id:\s*\d+\]/i.test(t) || /\d[\d.,]*\s*BTC\b/i.test(t))) continue;
 
         // Если курсор оказался прямо над маленьким span с ID, всё равно берём
         // полный текст строки, чтобы корректно вытащить название предмета.
         const row = el.closest('tr');
         const rowText = row ? normalizeSpace(row.innerText || row.textContent || '') : t;
-        const sourceText = (rowText && rowText.length < 5000 && /\[id:\s*\d+\]/i.test(rowText)) ? rowText : t;
+        const sourceText = (rowText && rowText.length < 5000) ? rowText : t;
         const item = parseHoverTrade(sourceText);
-        if (!item?.itemId) continue;
-
-        if (!pointerOnItemName(row || el, item, x, y)) continue;
-        return { host: row || el, item, text: sourceText };
+        if (item?.itemId && pointerOnItemName(row || el, item, x, y))
+          return { host: row || el, item, text: sourceText };
+        const btc = parseHoverBtc(sourceText);
+        if (btc && pointerOnBtcAmount(row || el, btc, x, y))
+          return { host: row || el, btc, text: sourceText };
       }
     }
     return null;
@@ -205,6 +257,7 @@
       hoverPriceState.host = null;
       hoverPriceState.key = '';
       hoverPriceState.item = null;
+      hoverPriceState.btc = null;
       hoverPriceState.token++;
     }, delay);
   }
@@ -244,6 +297,60 @@
       </div>
       ${qtyHtml}
       <div class="kts-hover-source">wiki.arz-mcr.ru/items/${item.itemId}${info?.at && Date.now() - Number(info.at) > PRICE_REFRESH_MS ? ' • старые данные' : info?.cached ? ' • кэш' : ' • live'}${info?.source ? ` • ${esc(info.source)}` : ''}</div>`;
+  }
+
+  function hoverBtcHtml(btc, rate, status = '') {
+    const header = `<div class="kts-hover-head"><span>₿ ${esc(btc.label)}</span><span class="kts-hover-id">${esc(btc.logDate)} МСК</span></div>`;
+    if (status === 'loading') return `${header}
+      <div class="kts-hover-loading"><span class="kts-hover-universe" aria-hidden="true"><span class="kts-hover-orbit"><i class="kts-hover-moon"></i></span><span class="kts-hover-planet"></span></span>
+      <span><b>Загружаю курс на дату записи…</b><br><small>историческая котировка BTC/USD</small></span></div>`;
+    if (!rate) return `${header}<div class="kts-hover-median"><span>Приблизительная сумма в игровых $</span><b>—</b></div>
+      <div class="kts-hover-source">${esc(status || 'Курс за этот час не найден. Повтори наведение позже.')}</div>`;
+    return `${header}
+      <div class="kts-hover-median"><span>Приблизительная сумма в игровых $</span><b>≈ ${moneyFmt(btc.amount * rate.price)} $</b></div>
+      <div class="kts-hover-prices"><div><span>Количество</span><b>${esc(btc.label)}</b></div><div><span>Курс BTC/USD за час</span><b>${moneyFmt(rate.price)} $</b></div></div>
+      <div class="kts-hover-source">Coinbase • ${esc(btc.logDate)} МСК • Обновлено: ${esc(new Date(rate.at).toLocaleString('ru-RU'))}${status ? ` • ${esc(status)}` : ''}<br>Оценка без комиссии банка Arizona.</div>`;
+  }
+
+  async function loadHoverBtc(candidate, mouseX, mouseY) {
+    const { host, btc } = candidate;
+    const key = `btc|${btc.candleTime}|${btc.label}|${btc.logDate}`;
+    if (hoverPriceState.host === host && hoverPriceState.key === key) {
+      positionHoverPriceTooltip(mouseX, mouseY);
+      return;
+    }
+    hoverPriceState.host = host;
+    hoverPriceState.key = key;
+    hoverPriceState.item = null;
+    hoverPriceState.btc = btc;
+    const token = ++hoverPriceState.token;
+    const cached = btcCache[String(btc.candleTime)];
+    if (cached?.price && Date.now() - Number(cached.at) < BTC_REFRESH_MS) {
+      showHoverPriceTooltip(hoverBtcHtml(btc, cached, 'сохранённый курс'), mouseX, mouseY);
+      return;
+    }
+    showHoverPriceTooltip(hoverBtcHtml(btc, null, 'loading'), mouseX, mouseY);
+    let response;
+    try {
+      response = await within(new Promise(resolve => {
+        chrome.runtime.sendMessage({ type: 'getBtcRate', candleTime: btc.candleTime }, value =>
+          resolve(chrome.runtime.lastError ? null : value));
+      }), 3300);
+    } catch (_) { response = null; }
+
+    let rate = null;
+    if (response?.status === 200 && Number(response.price) > 0 &&
+        response.candleTime === btc.candleTime) {
+      rate = { price: Number(response.price), at: Date.now() };
+      btcCache[String(btc.candleTime)] = rate;
+      chrome.storage.local.set({ [BTC_CACHE_KEY]: btcCache }).catch(() => {});
+    } else if (cached?.price) rate = cached;
+    const status = rate ? (response?.status === 200 ? '' : 'котировка из кэша, сеть недоступна')
+      : response?.status === 404 ? 'Курс за этот час не найден. Повтори наведение позже.'
+      : response?.status === 429 ? 'Сервис ограничил запросы. Повтори наведение позже.'
+      : 'Не удалось обновить курс. Проверь соединение и наведи ещё раз.';
+    if (token === hoverPriceState.token && hoverPriceState.key === key)
+      showHoverPriceTooltip(hoverBtcHtml(btc, rate, status), hoverPriceState.x, hoverPriceState.y);
   }
 
   function parseFastWikiPrice(data, itemId) {
@@ -409,7 +516,8 @@
         hideHoverPriceTooltip(120);
         return;
       }
-      loadHoverPrice(c, e.clientX, e.clientY);
+      if (c.btc) loadHoverBtc(c, e.clientX, e.clientY);
+      else loadHoverPrice(c, e.clientX, e.clientY);
     };
 
     document.addEventListener('pointermove', handlePointer, true);
