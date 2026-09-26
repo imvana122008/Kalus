@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
 const content = fs.readFileSync('content.js', 'utf8');
 const background = fs.readFileSync('background.js', 'utf8');
+const releaseNotice = () => fs.readFileSync('release-notice.js', 'utf8');
 const access = () => fs.readFileSync('site-access.js', 'utf8');
 
 test('bundled market archive contains dated Chandler and VC prices for a known ID', () => {
@@ -20,9 +21,75 @@ test('bundled market archive contains dated Chandler and VC prices for a known I
 test('loads only on LogsParser and asks for Wiki access', () => {
   assert.equal(manifest.manifest_version, 3);
   assert.deepEqual(manifest.content_scripts[0].matches, ['https://arizonarp.logsparser.info/*']);
+  assert.deepEqual(manifest.content_scripts[0].js, ['content.js', 'release-notice.js']);
+  assert.deepEqual(manifest.web_accessible_resources[0].resources, ['icon128.png']);
   assert.deepEqual(manifest.host_permissions, ['https://wiki.arz-mcr.ru/*', 'https://api.exchange.coinbase.com/*', 'https://api.coingecko.com/*', 'https://raw.githubusercontent.com/*']);
   assert.deepEqual(manifest.permissions, ['storage', 'alarms']);
   assert.ok(fs.existsSync(manifest.icons['128']));
+});
+
+test('update notice shows actual release changes and remembers dismissal', async () => {
+  const nodes = [];
+  const el = tag => ({ tag, children: [], className: '', textContent: '', listeners: {},
+    appendChild(child) { this.children.push(child); },
+    addEventListener(name, fn) { this.listeners[name] = fn; },
+    remove() { nodes.splice(nodes.indexOf(this), 1); } });
+  const document = { body: { appendChild(node) { nodes.push(node); } }, createElement: el,
+    querySelector: () => null };
+  const writes = [];
+  const chrome = { runtime: { getURL: name => `chrome-extension://extension-id/${name}`,
+    sendMessage: (_request, cb) => cb({ status: 200,
+    installedVersion: '1.0.7', latestVersion: '1.0.7',
+    release: { title: 'Уведомления', changes: ['Теперь показываются изменения на странице логов'] } }) },
+    storage: { local: { get: async () => ({}), set: async value => writes.push(value) } } };
+  vm.runInNewContext(releaseNotice(), { document, chrome, location: { hostname: 'arizonarp.logsparser.info' }, setTimeout });
+  await new Promise(setImmediate);
+  assert.equal(nodes.length, 1);
+  assert.equal(nodes[0].children[0].children[0].src, 'chrome-extension://extension-id/icon128.png');
+  const content = node => [node.textContent, ...node.children.flatMap(content)].join(' ');
+  assert.match(content(nodes[0]), /Теперь показываются изменения/);
+  const closeButton = nodes[0].children.flatMap(node => node.children).find(node => node.tag === 'button' && node.textContent === 'Понятно');
+  assert.ok(closeButton);
+  closeButton.listeners.click();
+  assert.equal(nodes.length, 0);
+  assert.equal(writes[0].kalusSeenRelease, '1.0.7');
+});
+
+test('update notice for an older unpacked version links to the new ZIP', async () => {
+  const nodes = [];
+  const el = tag => ({ tag, children: [], textContent: '', className: '', listeners: {},
+    appendChild(child) { this.children.push(child); }, addEventListener(name, fn) { this.listeners[name] = fn; },
+    remove() { nodes.splice(nodes.indexOf(this), 1); } });
+  const document = { body: { appendChild(node) { nodes.push(node); } }, createElement: el,
+    querySelector: () => null };
+  const chrome = { runtime: { getURL: name => `chrome-extension://extension-id/${name}`,
+    sendMessage: (_request, cb) => cb({ status: 200,
+    installedVersion: '1.0.6', latestVersion: '1.0.7',
+    release: { title: 'Новые функции', changes: ['Добавлены уведомления'] } }) },
+    storage: { local: { get: async () => ({}), set: async () => {} } } };
+  vm.runInNewContext(releaseNotice(), { document, chrome, location: { hostname: 'arizonarp.logsparser.info' }, setTimeout });
+  await new Promise(setImmediate);
+  const links = nodes[0].children.flatMap(node => node.children).filter(node => node.tag === 'a');
+  assert.equal(links[0].href, 'https://kalus-price-hub.imvana122008.chatgpt.site/downloads/Kalus_Chandler_Extension_1.0.7.zip');
+});
+
+test('release lookup picks a newer published version without executing its text', async () => {
+  let handler;
+  const chrome = { runtime: { id: 'extension-id', getManifest: () => ({ version: '1.0.7' }),
+    getURL: name => `chrome-extension://extension-id/${name}`,
+    onMessage: { addListener: fn => { handler = fn; } } } };
+  const fetch = async url => ({ ok: true, json: async () => url.startsWith('chrome-extension:')
+    ? { latestVersion: '1.0.7', title: 'Добавлено', changes: ['Уведомления'] }
+    : { latestVersion: '1.0.8', title: '<script>bad</script>', changes: ['Новая проверка'] } });
+  vm.runInNewContext(background, { chrome, fetch, AbortSignal, Date, setTimeout, clearTimeout });
+  const sender = { id: 'extension-id', url: 'https://arizonarp.logsparser.info/logs' };
+  const release = await new Promise(resolve => handler({ type: 'getReleaseInfo' }, sender, resolve));
+  assert.equal(release.latestVersion, '1.0.8');
+  assert.equal(release.installedVersion, '1.0.7');
+  assert.equal(release.release.title, '<script>bad</script>');
+  let unauthorized;
+  handler({ type: 'getReleaseInfo' }, { id: 'extension-id', url: 'https://evil.example/' }, value => { unauthorized = value; });
+  assert.equal(unauthorized.status, 400);
 });
 
 test('schedules a market check every 30 minutes even without hovering', async () => {
@@ -90,8 +157,8 @@ test('loads Chandler sale and buy only after hovering the item name', async () =
   const item = actions.parseHoverTrade('Игрок Ivan_Kalus получил в инвентарь Супер мото-ящик [id: 1769]');
   assert.equal(item.item, 'Супер мото-ящик');
   await actions.loadHoverPrice({ host: {}, item }, 100, 100);
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0].itemId, 1769);
+  assert.deepEqual(requests.map(request => request.type), ['getMarketPrice', 'getItemPrice']);
+  assert.equal(requests[1].itemId, 1769);
   assert.match(tip.innerHTML, /100[\s\u00a0]000/);
   assert.match(tip.innerHTML, /65[\s\u00a0]000/);
   assert.match(tip.innerHTML, /Последняя проверка Wiki:/);
@@ -189,7 +256,7 @@ test('a rate limit shows a retry message instead of endless loading', async () =
   });
   const item = { itemId: 1769, item: 'Супер мото-ящик', qty: 1 };
   await actions.loadHoverPrice({ host: {}, item }, 100, 100);
-  assert.deepEqual(requests.map(r => r.type), ['getItemPrice', 'getMarketPrice']);
+  assert.deepEqual(requests.map(r => r.type), ['getMarketPrice', 'getItemPrice']);
   assert.match(tip.innerHTML, /повторю автоматически/);
   assert.doesNotMatch(tip.innerHTML, /Загружаю цены/);
 });
@@ -206,7 +273,7 @@ test('archived Chandler averages appear with dates and separate VC when Wiki is 
     } });
   });
   await actions.loadHoverPrice({ host: {}, item: { itemId: 1766, item: 'Ящик Marvel', qty: 1 } }, 100, 100);
-  assert.deepEqual(requests.map(r => r.type), ['getItemPrice', 'getMarketPrice']);
+  assert.deepEqual(requests.map(r => r.type), ['getMarketPrice', 'getItemPrice']);
   assert.match(tip.innerHTML, /139[\s\u00a0]512 \$/);
   assert.match(tip.innerHTML, /83[\s\u00a0]929 \$/);
   assert.match(tip.innerHTML, /2026-09-22/);
@@ -216,6 +283,22 @@ test('archived Chandler averages appear with dates and separate VC when Wiki is 
   assert.match(tip.innerHTML, /500 VC/);
   assert.match(tip.innerHTML, /архив/i);
   assert.doesNotMatch(tip.innerHTML, /wiki\.arz-mcr\.ru\/items\/1766.*live/);
+});
+
+test('Arizona Market has priority over Wiki and remains visible when Wiki succeeds', async () => {
+  const { requests, tip, actions } = loadContent((message, callback) => {
+    if (message.type === 'getMarketPrice') callback({ status: 200, itemId: 1766,
+      checkedAt: Date.UTC(2026, 8, 26, 9), entry: { name: 'Ящик Marvel',
+        sell: { date: '2026-09-23', price: 139512, count: 12 },
+        buy: { date: '2026-09-23', price: 83929, count: 9 } } });
+    if (message.type === 'getItemPrice') callback({ status: 200, data: { itemId: 1766,
+      name: 'Ящик Marvel', servers: [{ server: 4, status: 'ok', sell: { avg: 190000 }, buy: { avg: 95000 } }] } });
+  });
+  await actions.loadHoverPrice({ host: {}, item: { itemId: 1766, item: 'Ящик Marvel', qty: 1 } }, 10, 10);
+  assert.deepEqual(requests.map(request => request.type), ['getMarketPrice', 'getItemPrice']);
+  assert.match(tip.innerHTML, /139[\s\u00a0]512/);
+  assert.match(tip.innerHTML, /190[\s\u00a0]000/);
+  assert.match(tip.innerHTML, /2026-09-23/);
 });
 
 test('BTC log parser treats comma as thousands in the log and uses its historical time', () => {
@@ -272,6 +355,44 @@ test('only the site origin gets an extension presence response', () => {
   assert.equal(posted[0][0].nonce, 'random-challenge');
   onMessage({ source: window, origin: 'https://other.example', data: { type: 'kalus:site:check', nonce: 'wrong-origin' } });
   assert.equal(posted.length, 1);
+});
+
+test('site can request a dated Arizona Market record from the installed extension', async () => {
+  let onMessage;
+  const posted = [], requested = [];
+  const origin = 'https://kalus-price-hub.imvana122008.chatgpt.site';
+  const window = { location: { origin }, addEventListener: (_, listener) => { onMessage = listener; },
+    postMessage: data => posted.push(data) };
+  const chrome = { runtime: { id: 'extension-id', lastError: null,
+    sendMessage: (payload, callback) => {
+      requested.push(payload);
+      callback({ status: 200, itemId: 1766, checkedAt: Date.UTC(2026, 8, 26),
+        entry: { name: 'Ящик Marvel', sell: { price: 139512, date: '2026-09-23' } } });
+    } } };
+  vm.runInNewContext(access(), { window, chrome });
+  onMessage({ source: window, origin, data: { type: 'kalus:site:market', nonce: 'abc', itemId: 1766 } });
+  await new Promise(setImmediate);
+  assert.equal(requested[0].type, 'getMarketPrice');
+  assert.equal(posted[0].type, 'kalus:site:market:response');
+  assert.equal(posted[0].entry.sell.date, '2026-09-23');
+  onMessage({ source: window, origin: 'https://other.example', data: { type: 'kalus:site:market', nonce: 'abc', itemId: 1766 } });
+  assert.equal(requested.length, 1);
+});
+
+test('site may only read Arizona Market prices, other messages remain LogsParser-only', async () => {
+  let handler;
+  const chrome = { runtime: { id: 'extension-id', getURL: name => `chrome-extension://extension-id/${name}`,
+    onMessage: { addListener: fn => { handler = fn; } } },
+    storage: { local: { get: async () => ({}), set: async () => {} } } };
+  const entry = { items: { 1766: { name: 'Ящик Marvel', sell: { price: 139512, date: '2026-09-23' } } } };
+  const fetch = async () => ({ ok: true, json: async () => entry });
+  vm.runInNewContext(background, { chrome, fetch, AbortSignal, Date, setTimeout, clearTimeout });
+  const sender = { id: 'extension-id', url: 'https://kalus-price-hub.imvana122008.chatgpt.site/' };
+  const result = await new Promise(resolve => handler({ type: 'getMarketPrice', itemId: 1766 }, sender, resolve));
+  assert.equal(result.entry.sell.price, 139512);
+  let forbidden;
+  handler({ type: 'getItemPrice', itemId: 1766 }, sender, value => { forbidden = value; });
+  assert.equal(forbidden.status, 400);
 });
 
 test('BTC tooltip calculates approximate game dollars and displays the price timestamp', async () => {

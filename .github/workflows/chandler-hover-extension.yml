@@ -27,19 +27,22 @@ jobs:
       CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
     steps:
       - uses: actions/checkout@v4
-      - name: Package next version
+      - name: Package tested version
         run: |
           python3 - <<'PY'
-          import json, os, zipfile
+          import json, zipfile
           from pathlib import Path
           folder = Path('extensions/chandler-hover')
           manifest = json.loads((folder / 'manifest.json').read_text())
-          manifest['version'] = f"1.0.{os.environ['GITHUB_RUN_NUMBER']}"
-          files = ['manifest.json', 'background.js', 'content.js', 'styles.css', 'site-access.js', 'market-seed.json', 'icon128.png']
+          notes = json.loads((folder / 'release-notes.json').read_text())
+          if manifest['version'] != notes['latestVersion']:
+              raise SystemExit('Bump manifest and release notes to the same version before publishing')
+          files = ['manifest.json', 'background.js', 'content.js', 'release-notice.js',
+                   'styles.css', 'site-access.js', 'market-seed.json',
+                   'release-notes.json', 'icon128.png']
           with zipfile.ZipFile('extension.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
               for name in files:
-                  data = json.dumps(manifest, ensure_ascii=False, indent=2).encode() if name == 'manifest.json' else (folder / name).read_bytes()
-                  archive.writestr(name, data)
+                  archive.write(folder / name, name)
           PY
       - name: Submit update to Chrome Web Store
         run: |

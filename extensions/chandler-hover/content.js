@@ -287,17 +287,22 @@
 
     if (info?.marketEntry) {
       const entry = info.marketEntry;
+      const wiki = info.wikiPrice;
       const dated = field => entry[field] ? `${moneyFmt(entry[field].price)} $<small> · Дата цены: ${esc(entry[field].date)}</small>` : 'нет данных';
       const vc = field => entry[field] ? `${moneyFmt(entry[field].price)} VC<small> · Дата цены: ${esc(entry[field].date)}</small>` : 'нет данных';
       const checkedAt = Number(entry.checkedAt);
       const checkedText = Number.isFinite(checkedAt) && checkedAt > 0 ? esc(new Date(checkedAt).toLocaleString('ru-RU')) : 'ещё не проверялся онлайн';
       const total = qty > 1 && entry.sell ? `<div class="kts-hover-total">Количество x${qty}: ≈ ${moneyFmt(entry.sell.price * qty)} $ по архивной средней продаже</div>` : '';
+      const wikiCompare = wiki && (wiki.sellPrice || wiki.buyPrice) ? `
+        <div class="kts-hover-chandler-title"><b>Wiki · для сравнения</b></div>
+        <div class="kts-hover-prices"><div><span>Продажа · Chandler</span><b>${wiki.sellPrice ? moneyFmt(wiki.sellPrice) + ' $' : 'нет данных'}</b></div><div><span>Скупка · Chandler</span><b>${wiki.buyPrice ? moneyFmt(wiki.buyPrice) + ' $' : 'нет данных'}</b></div></div>
+        <div class="kts-hover-source">Wiki: ${wiki.at ? `проверено ${esc(new Date(wiki.at).toLocaleString('ru-RU'))}, дата самой цены неизвестна` : 'дата проверки неизвестна'}.</div>` : '';
       return `<div class="kts-hover-head"><span>📦 ${esc(entry.name || item.item)}</span><span class="kts-hover-id">ID ${item.itemId}</span></div>
-        <div class="kts-hover-chandler-title"><b>Chandler · архивные средние</b></div>
+        <div class="kts-hover-chandler-title"><b>Arizona Market · Chandler</b><span>архивные средние</span></div>
         <div class="kts-hover-prices"><div><span>Продажа · игровые $</span><b class="kts-hover-sell">${dated('sell')}</b></div><div><span>Скупка · игровые $</span><b class="kts-hover-buy">${dated('buy')}</b></div></div>
         <div class="kts-hover-chandler-title"><b>VC · все серверы</b></div>
         <div class="kts-hover-prices"><div><span>Продажа</span><b>${vc('vcSell')}</b></div><div><span>Скупка</span><b>${vc('vcBuy')}</b></div></div>
-        ${total}<div class="kts-hover-source">ArzMarket · средние по архиву объявлений, не текущая цена${info.retrying ? ' • Wiki обновится автоматически' : ''}.<br>Последняя проверка источника: ${checkedText} (время браузера).</div>`;
+        ${total}<div class="kts-hover-source">ArzMarket · средние по архиву объявлений, не текущая цена${info.retrying ? ' • Wiki обновится автоматически' : ''}.<br>Последняя проверка источника: ${checkedText} (время браузера).</div>${wikiCompare}`;
     }
 
     const medianText = medianSale ? `${moneyFmt(medianSale)} $` : 'нет данных';
@@ -498,15 +503,20 @@
     const token = ++hoverPriceState.token;
 
     const cached = cachedPrice(item.itemId);
+    const old = getPriceCache()[String(item.itemId)];
     if (cached) {
       showHoverPriceTooltip(hoverPriceHtml(item, { ...cached, cached: true }), mouseX, mouseY);
-      return;
-    }
-
-    const old = getPriceCache()[String(item.itemId)];
-    if (old?.sellPrice || old?.buyPrice || old?.medianSale) {
+    } else if (old?.sellPrice || old?.buyPrice || old?.medianSale) {
       showHoverPriceTooltip(hoverPriceHtml(item, { ...old, cached: true, stale: true }), mouseX, mouseY);
     } else showHoverPriceTooltip(hoverPriceHtml(item, null, true), mouseX, mouseY);
+
+    // The dated Arizona Market record is the primary price source, including when Wiki works.
+    const marketEntry = await within(fastMarketPrice(item.itemId), 650);
+    if (token !== hoverPriceState.token || hoverPriceState.key !== key) return;
+    if (marketEntry) showHoverPriceTooltip(hoverPriceHtml(item, {
+      marketEntry, wikiPrice: cached || (old?.sellPrice || old?.buyPrice ? old : null)
+    }), hoverPriceState.x, hoverPriceState.y);
+    if (cached) return;
 
     const miss = old?.missUntil > Date.now();
     let info = null;
@@ -530,10 +540,6 @@
     }
     const oldHasPrice = old?.sellPrice || old?.buyPrice || old?.medianSale;
     const pendingRetry = wikiRetryQueue.has(item.itemId);
-    if (!info && !oldHasPrice) {
-      const entry = await within(fastMarketPrice(item.itemId), 650);
-      if (entry) info = { marketEntry: entry, retrying: pendingRetry };
-    }
     info = info || (oldHasPrice ? { ...old, cached: true } : {
       sellPrice: 0, buyPrice: 0, medianSale: 0,
       source: pendingRetry ? 'Wiki временно недоступна — повторю автоматически' : 'Цена пока не найдена; попробуй позже',
@@ -541,6 +547,7 @@
     if (pendingRetry && (info.sellPrice || info.buyPrice || info.medianSale)) {
       info = { ...info, source: `${info.source || 'кэш'} • Wiki обновится автоматически` };
     }
+    if (marketEntry) info = { marketEntry, wikiPrice: info, retrying: pendingRetry };
 
     if (token !== hoverPriceState.token || hoverPriceState.key !== key) return;
     showHoverPriceTooltip(hoverPriceHtml(item, info), hoverPriceState.x, hoverPriceState.y);

@@ -4,6 +4,7 @@ const MARKET_STORAGE_KEY = 'kalusMarketArchiveV1';
 const MARKET_ALARM_NAME = 'kalus-market-refresh';
 const MARKET_REFRESH_MS = 30 * 60 * 1000;
 const MARKET_RAW_BASE = 'https://raw.githubusercontent.com/FREYM1337/forumnick/main/';
+const RELEASE_URL = 'https://raw.githubusercontent.com/imvana122008/Kalus/main/extensions/chandler-hover/release-notes.json';
 const MARKET_FILES = {
   buy: 'avg_price/info_users_buy_chandler.json',
   sell: 'avg_price/info_users_sell_chandler.json',
@@ -120,13 +121,47 @@ if (chrome.alarms) {
   });
 }
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type !== 'getItemPrice' && message?.type !== 'getBtcRate' && message?.type !== 'getMarketPrice') return;
+function compareReleaseVersions(left, right) {
+  const a = left.split('.').map(Number);
+  const b = right.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  return 0;
+}
 
-  if (sender.id !== chrome.runtime.id ||
-      !sender.url?.startsWith('https://arizonarp.logsparser.info/')) {
+async function readReleaseInfo() {
+  const installedVersion = chrome.runtime.getManifest().version;
+  const local = await fetch(chrome.runtime.getURL('release-notes.json')).then(response => response.json());
+  const valid = note => note && /^\d+\.\d+\.\d+$/.test(note.latestVersion) &&
+    typeof note.title === 'string' && Array.isArray(note.changes) &&
+    note.changes.every(change => typeof change === 'string');
+  if (!valid(local)) throw Error('Invalid bundled release notes');
+  let latest = local;
+  try {
+    const response = await fetch(RELEASE_URL, { cache: 'no-store', signal: AbortSignal.timeout(3000) });
+    if (response.ok) {
+      const remote = await response.json();
+      if (valid(remote) && compareReleaseVersions(remote.latestVersion, latest.latestVersion) >= 0)
+        latest = remote;
+    }
+  } catch (_) { /* Bundled notes are available offline. */ }
+  return { status: 200, installedVersion, latestVersion: latest.latestVersion,
+    release: { title: latest.title, changes: latest.changes.slice(0, 4) } };
+}
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type !== 'getItemPrice' && message?.type !== 'getBtcRate' &&
+      message?.type !== 'getMarketPrice' && message?.type !== 'getReleaseInfo') return;
+
+  const fromLogs = sender.url?.startsWith('https://arizonarp.logsparser.info/');
+  const fromSite = sender.url?.startsWith('https://kalus-price-hub.imvana122008.chatgpt.site/');
+  if (sender.id !== chrome.runtime.id || !(fromLogs || (fromSite && message.type === 'getMarketPrice'))) {
     sendResponse({ status: 400 });
     return;
+  }
+
+  if (message.type === 'getReleaseInfo') {
+    readReleaseInfo().then(sendResponse).catch(() => sendResponse({ status: 0 }));
+    return true;
   }
 
   const btc = message.type === 'getBtcRate';

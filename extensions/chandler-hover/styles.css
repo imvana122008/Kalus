@@ -17,3 +17,21 @@
       #kts-hover-price .kts-hover-moon{position:absolute;top:-5px;left:24px;width:9px;height:9px;border-radius:50%;background:radial-gradient(circle at 30% 28%,#fff,#7dcaf5 62%,#365aaf);box-shadow:0 0 10px #72cafa}#kts-hover-price .kts-hover-moon-second{top:45px;left:3px;width:6px;height:6px;background:radial-gradient(circle at 30% 25%,#fff1be,#ea8e77 70%,#9d4e84);box-shadow:0 0 8px #df92b4}
       @keyframes kts-orbit{to{transform:rotate(360deg)}}
       @media (prefers-reduced-motion:reduce){#kts-hover-price .kts-hover-orbit{animation:none}}
+
+#kalus-release-notice{position:fixed;z-index:2147483646;top:18px;right:18px;box-sizing:border-box;width:min(360px,calc(100vw - 24px));padding:17px 18px 15px;border:1px solid #6889d4;border-radius:16px;background:radial-gradient(circle at 15% 20%,#d3e7ff 0 1px,transparent 2px),radial-gradient(circle at 76% 12%,#fff 0 1px,transparent 1.8px),radial-gradient(circle at 89% 79%,#c7afff 0 1px,transparent 1.8px),radial-gradient(ellipse at top right,#382e69 0,transparent 65%),linear-gradient(140deg,#111c3c,#10152f);color:#ecf3ff;box-shadow:0 20px 60px #050921ac,0 0 28px #8371d335;font:13px/1.5 Arial,sans-serif;animation:kalus-release-appear .35s ease-out;pointer-events:auto}
+#kalus-release-notice .kalus-release-head{display:flex;align-items:center;gap:8px;color:#fff}
+#kalus-release-notice .kalus-release-head strong{flex:1;font-size:14px}
+#kalus-release-notice .kalus-release-mark{display:block;flex:none;width:32px;height:32px;object-fit:cover;border-radius:9px;background:#111931;box-shadow:0 0 13px #e5a5ff6a}
+#kalus-release-notice .kalus-release-version{padding:2px 7px;border:1px solid #6576a5;border-radius:7px;color:#c8d8ff;font-size:11px}
+#kalus-release-notice .kalus-release-title{margin:13px 0 5px;color:#ffd693;font-weight:700}
+#kalus-release-notice .kalus-release-list{margin:5px 0 15px;padding-left:18px;color:#c9d9f2}
+#kalus-release-notice .kalus-release-list li{margin-top:5px;overflow-wrap:anywhere}
+#kalus-release-notice .kalus-release-list li::marker{color:#ecadff}
+#kalus-release-notice .kalus-release-actions{display:flex;justify-content:flex-end;align-items:center;gap:9px}
+#kalus-release-notice .kalus-release-actions a,#kalus-release-notice .kalus-release-actions button{box-sizing:border-box;padding:8px 10px;border-radius:8px;font:700 12px Arial,sans-serif;cursor:pointer;text-decoration:none}
+#kalus-release-notice .kalus-release-download{border:1px solid #ffd18d;background:#e8af69;color:#171c35}
+#kalus-release-notice .kalus-release-dismiss{border:1px solid #6d7ba7;background:#243557;color:#e5edff}
+#kalus-release-notice .kalus-release-actions :focus-visible{outline:2px solid white;outline-offset:2px}
+@keyframes kalus-release-appear{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+@media(max-width:520px){#kalus-release-notice{top:12px;right:12px}}
+@media(prefers-reduced-motion:reduce){#kalus-release-notice{animation:none}}
