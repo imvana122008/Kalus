@@ -285,6 +285,19 @@
         <div class="kts-hover-loading"><span class="kts-hover-universe" aria-hidden="true"><span class="kts-hover-orbit"><i class="kts-hover-moon"></i><i class="kts-hover-moon kts-hover-moon-second"></i></span><span class="kts-hover-planet"></span></span><span><b>Загружаю цены…</b><br><small>все серверы + Chandler</small></span></div>`;
     }
 
+    if (info?.marketEntry) {
+      const entry = info.marketEntry;
+      const dated = field => entry[field] ? `${moneyFmt(entry[field].price)} $<small> · ${esc(entry[field].date)}</small>` : 'нет данных';
+      const vc = field => entry[field] ? `${moneyFmt(entry[field].price)} VC<small> · ${esc(entry[field].date)}</small>` : 'нет данных';
+      const total = qty > 1 && entry.sell ? `<div class="kts-hover-total">Количество x${qty}: ≈ ${moneyFmt(entry.sell.price * qty)} $ по архивной средней продаже</div>` : '';
+      return `<div class="kts-hover-head"><span>📦 ${esc(entry.name || item.item)}</span><span class="kts-hover-id">ID ${item.itemId}</span></div>
+        <div class="kts-hover-chandler-title"><b>Chandler · архивные средние</b></div>
+        <div class="kts-hover-prices"><div><span>Продажа · игровые $</span><b class="kts-hover-sell">${dated('sell')}</b></div><div><span>Скупка · игровые $</span><b class="kts-hover-buy">${dated('buy')}</b></div></div>
+        <div class="kts-hover-chandler-title"><b>VC · все серверы</b></div>
+        <div class="kts-hover-prices"><div><span>Продажа</span><b>${vc('vcSell')}</b></div><div><span>Скупка</span><b>${vc('vcBuy')}</b></div></div>
+        ${total}<div class="kts-hover-source">ArzMarket · средние по архиву объявлений, не текущая цена${info.retrying ? ' • Wiki обновится автоматически' : ''}. Даты указаны рядом с ценами.</div>`;
+    }
+
     const medianText = medianSale ? `${moneyFmt(medianSale)} $` : 'нет данных';
     const sellText = sell ? `${moneyFmt(sell)} $` : 'нет данных';
     const buyText = buy ? `${moneyFmt(buy)} $` : 'нет данных';
@@ -414,6 +427,18 @@
     });
   }
 
+  function fastMarketPrice(itemId) {
+    return new Promise(resolve => {
+      try {
+        chrome.runtime.sendMessage({ type: 'getMarketPrice', itemId }, response => {
+          if (chrome.runtime.lastError || response?.status !== 200 ||
+              Number(response.itemId) !== itemId || !response.entry) return resolve(null);
+          resolve(response.entry);
+        });
+      } catch (_) { resolve(null); }
+    });
+  }
+
   function within(promise, ms) {
     return Promise.race([promise, new Promise(resolve => setTimeout(() => resolve(null), ms))]);
   }
@@ -503,6 +528,10 @@
     }
     const oldHasPrice = old?.sellPrice || old?.buyPrice || old?.medianSale;
     const pendingRetry = wikiRetryQueue.has(item.itemId);
+    if (!info && !oldHasPrice) {
+      const entry = await within(fastMarketPrice(item.itemId), 650);
+      if (entry) info = { marketEntry: entry, retrying: pendingRetry };
+    }
     info = info || (oldHasPrice ? { ...old, cached: true } : {
       sellPrice: 0, buyPrice: 0, medianSale: 0,
       source: pendingRetry ? 'Wiki временно недоступна — повторю автоматически' : 'Цена пока не найдена; попробуй позже',

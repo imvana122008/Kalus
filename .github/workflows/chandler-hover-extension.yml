@@ -35,7 +35,7 @@ jobs:
           folder = Path('extensions/chandler-hover')
           manifest = json.loads((folder / 'manifest.json').read_text())
           manifest['version'] = f"1.0.{os.environ['GITHUB_RUN_NUMBER']}"
-          files = ['manifest.json', 'background.js', 'content.js', 'styles.css', 'icon128.png']
+          files = ['manifest.json', 'background.js', 'content.js', 'styles.css', 'site-access.js', 'market-seed.json', 'icon128.png']
           with zipfile.ZipFile('extension.zip', 'w', zipfile.ZIP_DEFLATED) as archive:
               for name in files:
                   data = json.dumps(manifest, ensure_ascii=False, indent=2).encode() if name == 'manifest.json' else (folder / name).read_bytes()

@@ -8,10 +8,19 @@ const content = fs.readFileSync('content.js', 'utf8');
 const background = fs.readFileSync('background.js', 'utf8');
 const access = () => fs.readFileSync('site-access.js', 'utf8');
 
+test('bundled market archive contains dated Chandler and VC prices for a known ID', () => {
+  const market = JSON.parse(fs.readFileSync('market-seed.json', 'utf8'));
+  assert.ok(Object.keys(market.items).length > 3000);
+  assert.equal(market.items['1766'].name, 'Ящик Marvel');
+  assert.equal(market.items['1766'].sell.price, 139512);
+  assert.equal(market.items['1766'].sell.date, '2026-09-22');
+  assert.ok(market.items['1766'].vcSell.price > 0);
+});
+
 test('loads only on LogsParser and asks for Wiki access', () => {
   assert.equal(manifest.manifest_version, 3);
   assert.deepEqual(manifest.content_scripts[0].matches, ['https://arizonarp.logsparser.info/*']);
-  assert.deepEqual(manifest.host_permissions, ['https://wiki.arz-mcr.ru/*', 'https://api.exchange.coinbase.com/*', 'https://api.coingecko.com/*']);
+  assert.deepEqual(manifest.host_permissions, ['https://wiki.arz-mcr.ru/*', 'https://api.exchange.coinbase.com/*', 'https://api.coingecko.com/*', 'https://raw.githubusercontent.com/*']);
   assert.deepEqual(manifest.permissions, ['storage']);
   assert.ok(fs.existsSync(manifest.icons['128']));
 });
@@ -81,15 +90,77 @@ test('Wiki fetch runs in the service worker and rejects invalid IDs', async () =
   assert.equal(bad.status, 400);
 });
 
+test('background returns a dated bundled market record by item ID', async () => {
+  let handler;
+  const snapshot = { checkedAt: Date.now(), items: { '1766': { name: 'Ящик Marvel', sell: { date: '2026-09-22', price: 139512, count: 10360 } } } };
+  const chrome = { runtime: { id: 'extension-id', getURL: path => `chrome-extension://extension-id/${path}`,
+    onMessage: { addListener: fn => { handler = fn; } } },
+  storage: { local: { get: async () => ({}), set: async () => {} } } };
+  vm.runInNewContext(background, { chrome, fetch: async url => ({ ok: true, json: async () => snapshot }),
+    AbortController, setTimeout, clearTimeout, Date, URL });
+  const sender = { id: 'extension-id', url: 'https://arizonarp.logsparser.info/logs' };
+  const result = await new Promise(resolve => assert.equal(handler({ type: 'getMarketPrice', itemId: 1766 }, sender, resolve), true));
+  assert.equal(result.entry.sell.price, 139512);
+  assert.equal(result.entry.sell.date, '2026-09-22');
+});
+
+test('market archive refresh maps names back to IDs and caches a successful update', async () => {
+  let handler, writes = 0, remoteCalls = 0;
+  const initial = { items: {} };
+  const stored = {};
+  const catalog = { 1766: 'Test item', ...Object.fromEntries(Array.from({ length: 105 }, (_, i) => [String(i + 1), 'Test item'])) };
+  const record = { 'Test item': { list: [['2026-09-24', 3, 600, 3, 200, 200]] } };
+  const chrome = { runtime: { id: 'extension-id', getURL: path => `chrome-extension://extension-id/${path}`,
+    onMessage: { addListener: fn => { handler = fn; } } },
+    storage: { local: { get: async key => ({ [key]: stored[key] }), set: async value => { Object.assign(stored, value); writes++; } } } };
+  const fetch = async url => {
+    if (url.startsWith('chrome-extension:')) return { ok: true, json: async () => initial };
+    remoteCalls++;
+    const payload = url.endsWith('/items.json') ? catalog : record;
+    return { ok: true, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify(payload)).buffer };
+  };
+  const context = { chrome, fetch, AbortController, AbortSignal, TextDecoder, setTimeout, clearTimeout, Date, URL };
+  vm.runInNewContext(`${background}\nthis.marketTest = { refreshMarketSnapshot };`, context);
+  const sender = { id: 'extension-id', url: 'https://arizonarp.logsparser.info/logs' };
+  const first = await new Promise(resolve => handler({ type: 'getMarketPrice', itemId: 1766 }, sender, resolve));
+  assert.equal(first.status, 404);
+  await context.marketTest.refreshMarketSnapshot();
+  const second = await new Promise(resolve => handler({ type: 'getMarketPrice', itemId: 1766 }, sender, resolve));
+  assert.equal(second.entry.sell.price, 200);
+  assert.equal(writes, 1);
+  assert.equal(remoteCalls, 5);
+});
+
 test('a rate limit shows a retry message instead of endless loading', async () => {
   const { requests, tip, actions } = loadContent((message, callback) => {
     callback({ status: 429, retryAfter: '120' });
   });
   const item = { itemId: 1769, item: 'Супер мото-ящик', qty: 1 };
   await actions.loadHoverPrice({ host: {}, item }, 100, 100);
-  assert.equal(requests.length, 1);
+  assert.deepEqual(requests.map(r => r.type), ['getItemPrice', 'getMarketPrice']);
   assert.match(tip.innerHTML, /повторю автоматически/);
   assert.doesNotMatch(tip.innerHTML, /Загружаю цены/);
+});
+
+test('archived Chandler averages appear with dates and separate VC when Wiki is unavailable', async () => {
+  const { requests, tip, actions } = loadContent((message, callback) => {
+    if (message.type === 'getItemPrice') callback({ status: 404 });
+    if (message.type === 'getMarketPrice') callback({ status: 200, itemId: 1766, entry: {
+      name: 'Ящик Marvel',
+      sell: { date: '2026-09-22', price: 139512, count: 10360 },
+      buy: { date: '2026-09-22', price: 83929, count: 118 },
+      vcSell: { date: '2026-09-23', price: 500, count: 120 },
+      vcBuy: { date: '2026-09-23', price: 436, count: 1022 }
+    } });
+  });
+  await actions.loadHoverPrice({ host: {}, item: { itemId: 1766, item: 'Ящик Marvel', qty: 1 } }, 100, 100);
+  assert.deepEqual(requests.map(r => r.type), ['getItemPrice', 'getMarketPrice']);
+  assert.match(tip.innerHTML, /139[\s\u00a0]512 \$/);
+  assert.match(tip.innerHTML, /83[\s\u00a0]929 \$/);
+  assert.match(tip.innerHTML, /2026-09-22/);
+  assert.match(tip.innerHTML, /500 VC/);
+  assert.match(tip.innerHTML, /архив/i);
+  assert.doesNotMatch(tip.innerHTML, /wiki\.arz-mcr\.ru\/items\/1766.*live/);
 });
 
 test('BTC log parser treats comma as thousands in the log and uses its historical time', () => {
