@@ -287,15 +287,17 @@
 
     if (info?.marketEntry) {
       const entry = info.marketEntry;
-      const dated = field => entry[field] ? `${moneyFmt(entry[field].price)} $<small> · ${esc(entry[field].date)}</small>` : 'нет данных';
-      const vc = field => entry[field] ? `${moneyFmt(entry[field].price)} VC<small> · ${esc(entry[field].date)}</small>` : 'нет данных';
+      const dated = field => entry[field] ? `${moneyFmt(entry[field].price)} $<small> · Дата цены: ${esc(entry[field].date)}</small>` : 'нет данных';
+      const vc = field => entry[field] ? `${moneyFmt(entry[field].price)} VC<small> · Дата цены: ${esc(entry[field].date)}</small>` : 'нет данных';
+      const checkedAt = Number(entry.checkedAt);
+      const checkedText = Number.isFinite(checkedAt) && checkedAt > 0 ? esc(new Date(checkedAt).toLocaleString('ru-RU')) : 'ещё не проверялся онлайн';
       const total = qty > 1 && entry.sell ? `<div class="kts-hover-total">Количество x${qty}: ≈ ${moneyFmt(entry.sell.price * qty)} $ по архивной средней продаже</div>` : '';
       return `<div class="kts-hover-head"><span>📦 ${esc(entry.name || item.item)}</span><span class="kts-hover-id">ID ${item.itemId}</span></div>
         <div class="kts-hover-chandler-title"><b>Chandler · архивные средние</b></div>
         <div class="kts-hover-prices"><div><span>Продажа · игровые $</span><b class="kts-hover-sell">${dated('sell')}</b></div><div><span>Скупка · игровые $</span><b class="kts-hover-buy">${dated('buy')}</b></div></div>
         <div class="kts-hover-chandler-title"><b>VC · все серверы</b></div>
         <div class="kts-hover-prices"><div><span>Продажа</span><b>${vc('vcSell')}</b></div><div><span>Скупка</span><b>${vc('vcBuy')}</b></div></div>
-        ${total}<div class="kts-hover-source">ArzMarket · средние по архиву объявлений, не текущая цена${info.retrying ? ' • Wiki обновится автоматически' : ''}. Даты указаны рядом с ценами.</div>`;
+        ${total}<div class="kts-hover-source">ArzMarket · средние по архиву объявлений, не текущая цена${info.retrying ? ' • Wiki обновится автоматически' : ''}.<br>Последняя проверка источника: ${checkedText} (время браузера).</div>`;
     }
 
     const medianText = medianSale ? `${moneyFmt(medianSale)} $` : 'нет данных';
@@ -318,7 +320,7 @@
         <div><span>Скупка</span><b class="kts-hover-buy">${buyText}</b></div>
       </div>
       ${qtyHtml}
-      <div class="kts-hover-source">wiki.arz-mcr.ru/items/${item.itemId}${info?.at && Date.now() - Number(info.at) > PRICE_REFRESH_MS ? ' • старые данные' : info?.cached ? ' • кэш' : ' • live'}${info?.source ? ` • ${esc(info.source)}` : ''}</div>`;
+      <div class="kts-hover-source">wiki.arz-mcr.ru/items/${item.itemId}${info?.at && Date.now() - Number(info.at) > PRICE_REFRESH_MS ? ' • старые данные' : info?.cached ? ' • кэш' : ' • live'}${info?.source ? ` • ${esc(info.source)}` : ''}${info?.at ? `<br>Последняя проверка Wiki: ${esc(new Date(info.at).toLocaleString('ru-RU'))} (время браузера; дата цены неизвестна)` : ''}</div>`;
   }
 
   function hoverBtcHtml(btc, rate, status = '') {
@@ -433,7 +435,7 @@
         chrome.runtime.sendMessage({ type: 'getMarketPrice', itemId }, response => {
           if (chrome.runtime.lastError || response?.status !== 200 ||
               Number(response.itemId) !== itemId || !response.entry) return resolve(null);
-          resolve(response.entry);
+          resolve({ ...response.entry, checkedAt: response.checkedAt });
         });
       } catch (_) { resolve(null); }
     });

@@ -1,6 +1,7 @@
 'use strict';
 
 const MARKET_STORAGE_KEY = 'kalusMarketArchiveV1';
+const MARKET_ALARM_NAME = 'kalus-market-refresh';
 const MARKET_REFRESH_MS = 30 * 60 * 1000;
 const MARKET_RAW_BASE = 'https://raw.githubusercontent.com/FREYM1337/forumnick/main/';
 const MARKET_FILES = {
@@ -63,25 +64,60 @@ async function fetchMarketJson(path, encoding) {
   });
   if (!response.ok) throw Error(`Market archive ${response.status}`);
   const text = new TextDecoder(encoding).decode(await response.arrayBuffer());
-  return JSON.parse(text);
+  return { data: JSON.parse(text), etag: response.headers?.get('etag') || null };
 }
 
 function refreshMarketSnapshot() {
   if (marketRefreshPromise || Date.now() < marketNextRefreshAt) return marketRefreshPromise;
   marketNextRefreshAt = Date.now() + 5 * 60 * 1000;
   marketRefreshPromise = (async () => {
+    const previous = await loadMarketSnapshot();
+    if (Number.isFinite(previous.checkedAt) && previous.checkedAt > Date.now() - MARKET_REFRESH_MS) {
+      marketNextRefreshAt = previous.checkedAt + MARKET_REFRESH_MS;
+      return;
+    }
     const keys = Object.keys(MARKET_FILES);
+    const paths = ['ArzMarketV3/items.json', ...keys.map(field => MARKET_FILES[field])];
+    if (paths.every(path => previous.etags?.[path])) {
+      const remoteTags = await Promise.all(paths.map(async path => {
+        const response = await fetch(MARKET_RAW_BASE + path, {
+          method: 'HEAD', cache: 'no-store', signal: AbortSignal.timeout(20000)
+        });
+        if (!response.ok) throw Error(`Market archive HEAD ${response.status}`);
+        return response.headers.get('etag');
+      }));
+      if (remoteTags.every((tag, i) => tag && tag === previous.etags[paths[i]])) {
+        const next = { ...previous, checkedAt: Date.now() };
+        await chrome.storage.local.set({ [MARKET_STORAGE_KEY]: next });
+        marketSnapshotPromise = Promise.resolve(next);
+        marketNextRefreshAt = next.checkedAt + MARKET_REFRESH_MS;
+        return;
+      }
+    }
     const [catalog, ...data] = await Promise.all([
       fetchMarketJson('ArzMarketV3/items.json', 'utf-8'),
       ...keys.map(field => fetchMarketJson(MARKET_FILES[field], 'windows-1251'))
     ]);
-    const next = buildMarketSnapshot(catalog, Object.fromEntries(keys.map((field, i) => [field, data[i]])));
+    const next = buildMarketSnapshot(catalog.data, Object.fromEntries(keys.map((field, i) => [field, data[i].data])));
     if (Object.keys(next.items).length < 100) throw Error('Market archive incomplete');
+    next.etags = Object.fromEntries([catalog, ...data].map((value, i) => [paths[i], value.etag]));
     await chrome.storage.local.set({ [MARKET_STORAGE_KEY]: next });
     marketSnapshotPromise = Promise.resolve(next);
     marketNextRefreshAt = Date.now() + MARKET_REFRESH_MS;
   })().catch(() => {}).finally(() => { marketRefreshPromise = null; });
   return marketRefreshPromise;
+}
+
+if (chrome.alarms) {
+  const installMarketAlarm = () => {
+    chrome.alarms.create(MARKET_ALARM_NAME, { periodInMinutes: 30 });
+    return refreshMarketSnapshot();
+  };
+  chrome.runtime.onInstalled?.addListener(installMarketAlarm);
+  chrome.runtime.onStartup?.addListener(installMarketAlarm);
+  chrome.alarms.onAlarm.addListener(alarm => {
+    if (alarm.name === MARKET_ALARM_NAME) return refreshMarketSnapshot();
+  });
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -107,7 +143,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'getMarketPrice') {
     loadMarketSnapshot().then(snapshot => {
       const entry = snapshot.items[String(itemId)];
-      sendResponse(entry ? { status: 200, itemId, entry } : { status: 404, itemId });
+      sendResponse(entry ? { status: 200, itemId, entry, checkedAt: snapshot.checkedAt || null } : { status: 404, itemId });
       if (Number.isFinite(snapshot.checkedAt) && snapshot.checkedAt > Date.now() - MARKET_REFRESH_MS)
         marketNextRefreshAt = Math.max(marketNextRefreshAt, snapshot.checkedAt + MARKET_REFRESH_MS);
       void refreshMarketSnapshot();

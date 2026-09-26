@@ -21,8 +21,34 @@ test('loads only on LogsParser and asks for Wiki access', () => {
   assert.equal(manifest.manifest_version, 3);
   assert.deepEqual(manifest.content_scripts[0].matches, ['https://arizonarp.logsparser.info/*']);
   assert.deepEqual(manifest.host_permissions, ['https://wiki.arz-mcr.ru/*', 'https://api.exchange.coinbase.com/*', 'https://api.coingecko.com/*', 'https://raw.githubusercontent.com/*']);
-  assert.deepEqual(manifest.permissions, ['storage']);
+  assert.deepEqual(manifest.permissions, ['storage', 'alarms']);
   assert.ok(fs.existsSync(manifest.icons['128']));
+});
+
+test('schedules a market check every 30 minutes even without hovering', async () => {
+  let onAlarm, onStartup, alarmConfig;
+  const saved = { checkedAt: Date.now() - 31 * 60 * 1000, items: { '1766': { name: 'Ящик Marvel' } },
+    etags: { 'ArzMarketV3/items.json': 'v1', ...Object.fromEntries(
+      ['buy_chandler', 'sell_chandler', 'buy_vc', 'sell_vc'].map(n => [`avg_price/info_users_${n}.json`, 'v1'])) } };
+  const writes = [];
+  const chrome = { runtime: { id: 'extension-id', onMessage: { addListener() {} },
+    onStartup: { addListener: fn => { onStartup = fn; } }, onInstalled: { addListener() {} } },
+    alarms: { create: (name, config) => { alarmConfig = { name, ...config }; },
+      onAlarm: { addListener: fn => { onAlarm = fn; } } },
+    storage: { local: { get: async () => ({ kalusMarketArchiveV1: saved }),
+      set: async value => { writes.push(value.kalusMarketArchiveV1); } } } };
+  const fetch = async (url, options) => {
+    assert.equal(options.method, 'HEAD');
+    return { ok: true, headers: { get: key => key === 'etag' ? 'v1' : null } };
+  };
+  const context = { chrome, fetch, AbortSignal, TextDecoder, setTimeout, clearTimeout, Date };
+  vm.runInNewContext(`${background}\nthis.marketTest = { refreshMarketSnapshot };`, context);
+  onStartup();
+  assert.equal(alarmConfig.periodInMinutes, 30);
+  await onAlarm({ name: alarmConfig.name });
+  assert.equal(writes.length, 1);
+  assert.ok(writes[0].checkedAt > saved.checkedAt);
+  assert.equal(writes[0].items['1766'].name, 'Ящик Marvel');
 });
 
 function loadContent(onMessage = () => {}) {
@@ -68,6 +94,7 @@ test('loads Chandler sale and buy only after hovering the item name', async () =
   assert.equal(requests[0].itemId, 1769);
   assert.match(tip.innerHTML, /100[\s\u00a0]000/);
   assert.match(tip.innerHTML, /65[\s\u00a0]000/);
+  assert.match(tip.innerHTML, /Последняя проверка Wiki:/);
 });
 
 test('Wiki fetch runs in the service worker and rejects invalid IDs', async () => {
@@ -102,6 +129,7 @@ test('background returns a dated bundled market record by item ID', async () => 
   const result = await new Promise(resolve => assert.equal(handler({ type: 'getMarketPrice', itemId: 1766 }, sender, resolve), true));
   assert.equal(result.entry.sell.price, 139512);
   assert.equal(result.entry.sell.date, '2026-09-22');
+  assert.equal(result.checkedAt, snapshot.checkedAt);
 });
 
 test('market archive refresh maps names back to IDs and caches a successful update', async () => {
@@ -131,6 +159,30 @@ test('market archive refresh maps names back to IDs and caches a successful upda
   assert.equal(remoteCalls, 5);
 });
 
+test('changed source ETag rebuilds prices with the actual new date', async () => {
+  const files = ['ArzMarketV3/items.json', ...['buy_chandler', 'sell_chandler', 'buy_vc', 'sell_vc'].map(n => `avg_price/info_users_${n}.json`)];
+  const previous = { checkedAt: Date.now() - 3600000, items: { '1766': { name: 'Ящик Marvel', sell: { price: 100, date: '2026-09-23' } } },
+    etags: Object.fromEntries(files.map(name => [name, 'old'])) };
+  const data = { 'Test item': { list: [['2026-09-26', 2, 0, 2, 1234]] } };
+  const catalog = { 1766: 'Test item', ...Object.fromEntries(Array.from({ length: 105 }, (_, i) => [i + 1, 'Test item'])) };
+  let gets = 0;
+  let stored;
+  const chrome = { runtime: { onMessage: { addListener() {} } },
+    storage: { local: { get: async () => ({ kalusMarketArchiveV1: previous }),
+      set: async value => { stored = value.kalusMarketArchiveV1; } } } };
+  const fetch = async (url, options) => {
+    if (options.method === 'HEAD') return { ok: true, headers: { get: () => 'new' } };
+    gets++;
+    return { ok: true, headers: { get: () => 'new' }, arrayBuffer: async () => new TextEncoder().encode(JSON.stringify(url.endsWith('/items.json') ? catalog : data)).buffer };
+  };
+  const context = { chrome, fetch, AbortSignal, TextDecoder, Date };
+  vm.runInNewContext(`${background}\nthis.marketTest = { refreshMarketSnapshot };`, context);
+  await context.marketTest.refreshMarketSnapshot();
+  assert.equal(gets, 5);
+  assert.equal(stored.items['1766'].sell.date, '2026-09-26');
+  assert.equal(stored.items['1766'].sell.price, 1234);
+});
+
 test('a rate limit shows a retry message instead of endless loading', async () => {
   const { requests, tip, actions } = loadContent((message, callback) => {
     callback({ status: 429, retryAfter: '120' });
@@ -145,7 +197,7 @@ test('a rate limit shows a retry message instead of endless loading', async () =
 test('archived Chandler averages appear with dates and separate VC when Wiki is unavailable', async () => {
   const { requests, tip, actions } = loadContent((message, callback) => {
     if (message.type === 'getItemPrice') callback({ status: 404 });
-    if (message.type === 'getMarketPrice') callback({ status: 200, itemId: 1766, entry: {
+    if (message.type === 'getMarketPrice') callback({ status: 200, itemId: 1766, checkedAt: Date.UTC(2026, 8, 26, 9), entry: {
       name: 'Ящик Marvel',
       sell: { date: '2026-09-22', price: 139512, count: 10360 },
       buy: { date: '2026-09-22', price: 83929, count: 118 },
@@ -158,6 +210,9 @@ test('archived Chandler averages appear with dates and separate VC when Wiki is 
   assert.match(tip.innerHTML, /139[\s\u00a0]512 \$/);
   assert.match(tip.innerHTML, /83[\s\u00a0]929 \$/);
   assert.match(tip.innerHTML, /2026-09-22/);
+  assert.match(tip.innerHTML, /Дата цены:/);
+  assert.match(tip.innerHTML, /Последняя проверка источника:/);
+  assert.match(tip.innerHTML, /26\.09\.2026/);
   assert.match(tip.innerHTML, /500 VC/);
   assert.match(tip.innerHTML, /архив/i);
   assert.doesNotMatch(tip.innerHTML, /wiki\.arz-mcr\.ru\/items\/1766.*live/);
