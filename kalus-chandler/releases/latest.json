@@ -1,0 +1,9 @@
+{
+  "version": "1.4.1",
+  "channel": "stable",
+  "url": "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/Kalus_Chandler_1.4.1_patch.zip.b64",
+  "encoding": "base64",
+  "sha256": "63a12baa5c81f97aba83e16150347f11d504084a760b27fc033bad0df68ef442",
+  "releasedAt": "2026-09-30T18:55:00Z",
+  "notes": "Bridge release: switches Kalus Chandler AutoUpdate to imvana122008/Kalus."
+}
