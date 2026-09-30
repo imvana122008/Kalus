@@ -1,9 +1,11 @@
 {
-  "version": "1.4.3",
+  "version": "1.4.4",
   "channel": "stable",
-  "url": "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/Kalus_Chandler_1.4.3_patch.zip.b64",
-  "encoding": "base64",
-  "sha256": "d167f4eeb336530ad01135661a8e40ecdf3e4d07a82797c1a08c9e9ff126d125",
-  "releasedAt": "2026-09-30T20:55:00Z",
-  "notes": "UID lookup via authenticated Shinoa tab + hidden hourly Windows updater + Chrome Web Store distribution prep."
+  "parts": [
+    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.4.4/part01.b64",
+    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.4.4/part02.b64"
+  ],
+  "sha256": "94ec622ebc7db48b5eaf2542b34ae4a826498554dbd3ab446624ba5c4d8a0aca",
+  "releasedAt": "2026-09-30T21:25:00Z",
+  "notes": "Authenticated Shinoa UID lookup + automatic self-heal from the visible 5-minute updater to a hidden hourly updater."
 }
