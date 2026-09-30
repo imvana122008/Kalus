@@ -1,16 +1,9 @@
 {
-  "version": "1.4.2",
+  "version": "1.4.3",
   "channel": "stable",
-  "parts": [
-    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.4.2/part01.b64",
-    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.4.2/part02.b64",
-    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.4.2/part03.b64",
-    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.4.2/part04.b64",
-    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.4.2/part05.b64"
-  ],
-  "sha256": "73a988dc15c4795ccdac50f3e9a01a4d5fb259e9235615e6350335d3c3cee7b1",
-  "releasedAt": "2026-09-30T19:54:00Z",
-  "notes": "Theme control fix + UID nickname lookup via Shinoa + long-press copy + hover performance.",
-  "url": "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/Kalus_Chandler_1.4.2_patch.zip.b64",
-  "encoding": "base64"
+  "url": "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/Kalus_Chandler_1.4.3_patch.zip.b64",
+  "encoding": "base64",
+  "sha256": "d167f4eeb336530ad01135661a8e40ecdf3e4d07a82797c1a08c9e9ff126d125",
+  "releasedAt": "2026-09-30T20:55:00Z",
+  "notes": "UID lookup via authenticated Shinoa tab + hidden hourly Windows updater + Chrome Web Store distribution prep."
 }
