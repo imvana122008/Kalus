@@ -1,0 +1,8 @@
+{
+  "name": "Kalus Chandler AutoUpdate",
+  "status": "write-access-confirmed",
+  "account": "imvana122008",
+  "channel": "stable",
+  "target_version": "1.4.1",
+  "note": "Repository write access is working. Release publishing will use kalus-chandler/releases once the repository is publicly readable by the Windows updater."
+}
