@@ -1,0 +1,75 @@
+name: Kalus Chandler release compatibility
+
+on:
+  push:
+    paths:
+      - 'kalus-chandler/releases/latest.json'
+      - '.github/workflows/kalus-chandler-release-compat.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kalus-chandler-release-compat
+  cancel-in-progress: true
+
+jobs:
+  build-compatible-url:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build single-file compatibility release
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, json
+          from pathlib import Path
+          from urllib.parse import urlparse
+
+          root = Path('.')
+          latest_path = root / 'kalus-chandler/releases/latest.json'
+          data = json.loads(latest_path.read_text(encoding='utf-8'))
+          parts = data.get('parts') or []
+          if not parts:
+              print('No multipart release, nothing to do.')
+              raise SystemExit(0)
+
+          pieces = []
+          for url in parts:
+              marker = '/main/'
+              if marker not in url:
+                  raise SystemExit(f'Unsupported part URL: {url}')
+              rel = url.split(marker, 1)[1]
+              p = root / rel
+              pieces.append(p.read_text(encoding='ascii').strip())
+
+          encoded = ''.join(pieces)
+          payload = base64.b64decode(encoded, validate=True)
+          actual = hashlib.sha256(payload).hexdigest()
+          expected = str(data['sha256']).lower()
+          if actual != expected:
+              raise SystemExit(f'SHA mismatch: {actual} != {expected}')
+
+          version = str(data['version'])
+          out_rel = f'kalus-chandler/releases/Kalus_Chandler_{version}_patch.zip.b64'
+          out = root / out_rel
+          out.write_text(encoded, encoding='ascii')
+
+          data['url'] = f'https://raw.githubusercontent.com/imvana122008/Kalus/main/{out_rel}'
+          data['encoding'] = 'base64'
+          latest_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+          print(f'Compatibility URL ready for {version}: {out_rel}')
+          PY
+      - name: Commit compatibility file
+        run: |
+          git config user.name 'Kalus Release Bot'
+          git config user.email '255565601+imvana122008@users.noreply.github.com'
+          git add kalus-chandler/releases/latest.json kalus-chandler/releases/Kalus_Chandler_*_patch.zip.b64
+          if git diff --cached --quiet; then
+            echo 'No compatibility changes.'
+            exit 0
+          fi
+          git commit -m 'Add backward-compatible Kalus Chandler release URL'
+          git push
