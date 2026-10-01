@@ -42,7 +42,8 @@ def newest_average(data):
     return {"date": row[0], "price": round(row[4]), "count": row[1]}
 
 
-def build(source_dir):
+def build(source_dir, previous_items=None):
+    previous_items = previous_items or {}
     names = json.loads(load_file("ArzMarketV3/items.json", source_dir).decode("utf-8"))
     archive = {}
     for field, path in SOURCES.items():
@@ -55,7 +56,16 @@ def build(source_dir):
         if not item_id.isdigit() or not name or name.strip().upper() == "DELETED":
             continue
         key = normalize(name)
-        entry = {field: archive[field][key] for field in SOURCES if archive[field].get(key)}
+        previous = previous_items.get(item_id, {})
+        entry = {}
+        for field in SOURCES:
+            current = archive[field].get(key)
+            saved = previous.get(field)
+            if current and (not saved or current["date"] >= saved.get("date", "")):
+                entry[field] = current
+            elif (isinstance(saved, dict) and re.fullmatch(r"20\d\d-\d\d-\d\d", str(saved.get("date", "")))
+                  and isinstance(saved.get("price"), (int, float)) and saved["price"] > 0):
+                entry[field] = saved
         if entry:
             mapped[item_id] = {"name": name.strip(), **entry}
     return {"source": "FREYM1337/forumnick avg_price", "items": mapped}
@@ -66,6 +76,7 @@ if __name__ == "__main__":
     parser.add_argument("--source-dir", type=Path)
     parser.add_argument("--output", type=Path, default=Path(__file__).with_name("market-seed.json"))
     args = parser.parse_args()
-    payload = build(args.source_dir)
+    previous = json.loads(args.output.read_text(encoding="utf-8")).get("items", {}) if args.output.exists() else {}
+    payload = build(args.source_dir, previous)
     args.output.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print("Market archive:", len(payload["items"]), "items; ID 1766:", payload["items"].get("1766"))
