@@ -18,6 +18,54 @@ test('bundled market archive contains dated Chandler and VC prices for a known I
   assert.ok(market.items['1766'].vcSell.price > 0);
 });
 
+test('corrected ID 8819 keeps its older Chandler price and uses dated VC records', () => {
+  const entry = JSON.parse(fs.readFileSync('market-seed.json', 'utf8')).items['8819'];
+  assert.equal(entry.name, 'Осколок легендарной нашивки монстра');
+  assert.deepEqual(entry.sell, { date: '2026-08-21', price: 1553600000, count: 5 });
+  assert.deepEqual(entry.vcBuy, { date: '2026-09-22', price: 10197956, count: 19 });
+  assert.deepEqual(entry.vcSell, { date: '2026-09-22', price: 13610949, count: 19 });
+});
+
+test('market refresh preserves an earlier price when an item name is corrected', () => {
+  const chrome = { runtime: { onMessage: { addListener() {} } } };
+  const context = { chrome, Date };
+  vm.runInNewContext(`${background}\nthis.buildMarketSnapshot = buildMarketSnapshot;`, context);
+  const previous = { '8819': { name: 'Осколок легендарной нашивке монстра',
+    sell: { date: '2026-08-21', price: 1553600000, count: 5 },
+    vcBuy: { date: '2026-09-16', price: 11084448, count: 26 } } };
+  const archives = { buy: {}, sell: {}, vcBuy: {
+    'Осколок легендарной нашивки монстра': { list: [['2026-09-22', 19, 193761167, 19, 10197956]] }
+  }, vcSell: {} };
+  const result = context.buildMarketSnapshot({ '8819': 'Осколок легендарной нашивки монстра' }, archives, previous);
+  assert.equal(result.items['8819'].sell.date, '2026-08-21');
+  assert.equal(result.items['8819'].vcBuy.date, '2026-09-22');
+  assert.equal(result.items['8819'].vcBuy.price, 10197956);
+});
+
+test('updated bundle applies newer dated prices to existing storage without changing check time', async () => {
+  const checkedAt = Date.UTC(2026, 8, 30, 12);
+  const old = { checkedAt, items: { '8819': { name: 'Осколок легендарной нашивке монстра',
+    sell: { date: '2026-08-21', price: 1553600000, count: 5 },
+    vcBuy: { date: '2026-09-16', price: 11084448, count: 26 } } } };
+  const seed = { items: { '8819': { name: 'Осколок легендарной нашивки монстра',
+    vcBuy: { date: '2026-09-22', price: 10197956, count: 19 } } } };
+  let saved;
+  const chrome = { runtime: { getURL: () => 'chrome-extension://id/market-seed.json',
+    onMessage: { addListener() {} } }, storage: { local: {
+      get: async () => ({ kalusMarketArchiveV1: old }),
+      set: async value => { saved = value.kalusMarketArchiveV1; }
+    } } };
+  const fetch = async () => ({ ok: true, json: async () => seed });
+  const context = { chrome, fetch, Date };
+  vm.runInNewContext(`${background}\nthis.loadMarketSnapshot = loadMarketSnapshot;`, context);
+  const result = await context.loadMarketSnapshot();
+  assert.equal(result.checkedAt, checkedAt);
+  assert.equal(result.items['8819'].name, seed.items['8819'].name);
+  assert.equal(result.items['8819'].sell.price, 1553600000);
+  assert.equal(result.items['8819'].vcBuy.date, '2026-09-22');
+  assert.equal(saved.checkedAt, checkedAt);
+});
+
 test('loads only on LogsParser and asks for Wiki access', () => {
   assert.equal(manifest.manifest_version, 3);
   assert.deepEqual(manifest.content_scripts[0].matches, ['https://arizonarp.logsparser.info/*']);
