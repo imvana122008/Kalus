@@ -28,7 +28,7 @@ function recentMarketAverage(record) {
   return { date: row[0], price: Math.round(Number(row[4])), count: Number(row[1]) || 0 };
 }
 
-function buildMarketSnapshot(catalog, archives) {
+function buildMarketSnapshot(catalog, archives, previousItems = {}) {
   const lookup = {};
   for (const [field, records] of Object.entries(archives)) {
     lookup[field] = new Map(Object.entries(records).map(([name, record]) =>
@@ -39,9 +39,13 @@ function buildMarketSnapshot(catalog, archives) {
     if (!/^\d+$/.test(id) || typeof name !== 'string' || !name.trim() || name.trim().toUpperCase() === 'DELETED') continue;
     const normalized = normalizeMarketName(name);
     const entry = { name: name.trim() };
+    const previous = previousItems[id] || {};
     for (const field of Object.keys(MARKET_FILES)) {
       const value = lookup[field].get(normalized);
-      if (value) entry[field] = value;
+      const saved = previous[field];
+      if (value && (!saved || value.date >= saved.date)) entry[field] = value;
+      else if (saved && /^20\d\d-\d\d-\d\d$/.test(saved.date) &&
+        Number.isFinite(saved.price) && saved.price > 0) entry[field] = saved;
     }
     if (Object.keys(entry).length > 1) items[id] = entry;
   }
@@ -51,10 +55,41 @@ function buildMarketSnapshot(catalog, archives) {
 function loadMarketSnapshot() {
   if (!marketSnapshotPromise) marketSnapshotPromise = (async () => {
     const saved = await chrome.storage.local.get(MARKET_STORAGE_KEY).catch(() => ({}));
-    if (saved[MARKET_STORAGE_KEY]?.items) return saved[MARKET_STORAGE_KEY];
-    const response = await fetch(chrome.runtime.getURL('market-seed.json'));
-    if (!response.ok) throw Error('Market seed unavailable');
-    return response.json();
+    const previous = saved[MARKET_STORAGE_KEY];
+    let seed;
+    try {
+      const response = await fetch(chrome.runtime.getURL('market-seed.json'));
+      if (!response.ok) throw Error('Market seed unavailable');
+      seed = await response.json();
+    } catch (error) {
+      if (previous?.items) return previous;
+      throw error;
+    }
+    if (!previous?.items) return seed;
+    const items = { ...previous.items };
+    let changed = false;
+    for (const [id, bundled] of Object.entries(seed.items || {})) {
+      const stored = items[id];
+      if (!stored) { items[id] = bundled; changed = true; continue; }
+      const merged = { ...stored };
+      let newer = false;
+      for (const field of Object.keys(MARKET_FILES)) {
+        const value = bundled[field];
+        if (value && (!merged[field] || value.date > merged[field].date)) {
+          merged[field] = value;
+          newer = true;
+        }
+      }
+      if (newer) {
+        merged.name = bundled.name;
+        items[id] = merged;
+        changed = true;
+      }
+    }
+    if (!changed) return previous;
+    const next = { ...previous, items };
+    await chrome.storage.local.set({ [MARKET_STORAGE_KEY]: next });
+    return next;
   })().catch(() => ({ items: {} }));
   return marketSnapshotPromise;
 }
@@ -99,7 +134,7 @@ function refreshMarketSnapshot() {
       fetchMarketJson('ArzMarketV3/items.json', 'utf-8'),
       ...keys.map(field => fetchMarketJson(MARKET_FILES[field], 'windows-1251'))
     ]);
-    const next = buildMarketSnapshot(catalog.data, Object.fromEntries(keys.map((field, i) => [field, data[i].data])));
+    const next = buildMarketSnapshot(catalog.data, Object.fromEntries(keys.map((field, i) => [field, data[i].data])), previous.items);
     if (Object.keys(next.items).length < 100) throw Error('Market archive incomplete');
     next.etags = Object.fromEntries([catalog, ...data].map((value, i) => [paths[i], value.etag]));
     await chrome.storage.local.set({ [MARKET_STORAGE_KEY]: next });
