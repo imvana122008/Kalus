@@ -1,20 +1,27 @@
 {
   "manifest_version": 3,
   "name": "Arizona RP — цены Chandler",
-  "description": "Цены Chandler, BTC, темы LogsParser и UID→ник через Shinoa. Версия для Chrome/Chromium.",
-  "version": "1.4.3",
+  "description": "Цены предметов Chandler и историческая оценка BTC в игровых долларах при наведении в логах.",
+  "version": "1.0.8",
   "permissions": [
     "storage",
-    "alarms",
-    "tabs",
-    "scripting"
+    "alarms"
   ],
   "host_permissions": [
     "https://wiki.arz-mcr.ru/*",
     "https://api.exchange.coinbase.com/*",
     "https://api.coingecko.com/*",
-    "https://raw.githubusercontent.com/*",
-    "https://logs.shinoa.tech/*"
+    "https://raw.githubusercontent.com/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "icon128.png"
+      ],
+      "matches": [
+        "https://arizonarp.logsparser.info/*"
+      ]
+    }
   ],
   "content_scripts": [
     {
@@ -22,11 +29,10 @@
         "https://arizonarp.logsparser.info/*"
       ],
       "js": [
-        "ui.js",
-        "content.js"
+        "content.js",
+        "release-notice.js"
       ],
       "css": [
-        "ui.css",
         "styles.css"
       ],
       "run_at": "document_idle"
