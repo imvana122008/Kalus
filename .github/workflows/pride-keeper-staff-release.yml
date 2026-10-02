@@ -23,6 +23,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate extension
+        shell: bash
+        run: |
+          node --check pride-keeper-staff/extension/background.js
+          node --check pride-keeper-staff/extension/content.js
+          python -m json.tool pride-keeper-staff/extension/manifest.json >/dev/null
+          python -m json.tool pride-keeper-staff/update.json >/dev/null
+
       - name: Read version
         id: version
         shell: bash
@@ -34,6 +42,19 @@ jobs:
           PY
           )
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure update.json matches manifest version
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          with open('pride-keeper-staff/extension/manifest.json', encoding='utf-8') as f:
+              manifest = json.load(f)
+          with open('pride-keeper-staff/update.json', encoding='utf-8') as f:
+              update = json.load(f)
+          assert manifest['version'] == update['version'], (manifest['version'], update['version'])
+          print('Version OK:', manifest['version'])
+          PY
 
       - name: Build ZIP
         shell: bash
@@ -54,4 +75,4 @@ jobs:
           gh release create latest \
             dist/PRIDE_KEEPER_Staff_latest.zip \
             --title "PRIDE KEEPER Staff v${VERSION}" \
-            --notes "Автоматическая сборка PRIDE KEEPER Staff v${VERSION}. Архив создан GitHub Actions из текущих исходников main."
+            --notes "Автоматическая сборка PRIDE KEEPER Staff v${VERSION}. Исходники и JSON прошли автоматическую проверку перед публикацией."
