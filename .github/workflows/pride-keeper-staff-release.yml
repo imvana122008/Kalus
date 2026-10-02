@@ -1,0 +1,57 @@
+name: PRIDE KEEPER Staff rolling release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pride-keeper-staff/**'
+      - '.github/workflows/pride-keeper-staff-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pride-keeper-staff-release
+  cancel-in-progress: true
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(python - <<'PY'
+          import json
+          with open('pride-keeper-staff/extension/manifest.json', encoding='utf-8') as f:
+              print(json.load(f)['version'])
+          PY
+          )
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build ZIP
+        shell: bash
+        run: |
+          mkdir -p dist
+          cd pride-keeper-staff/extension
+          zip -r ../../dist/PRIDE_KEEPER_Staff_latest.zip . -x '*.DS_Store'
+
+      - name: Recreate rolling latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          gh release delete latest --yes --cleanup-tag || true
+          git tag -f latest
+          git push origin refs/tags/latest --force
+          gh release create latest \
+            dist/PRIDE_KEEPER_Staff_latest.zip \
+            --title "PRIDE KEEPER Staff v${VERSION}" \
+            --notes "Автоматическая сборка PRIDE KEEPER Staff v${VERSION}. Архив создан GitHub Actions из текущих исходников main."
