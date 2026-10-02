@@ -1,6 +1,6 @@
 {
-  "version": "2.6.0",
+  "version": "5.0.0",
   "download_url": "https://github.com/imvana122008/Kalus/releases/download/latest/PRIDE_KEEPER_Staff_latest.zip",
   "release_url": "https://github.com/imvana122008/Kalus/releases/tag/latest",
-  "notes": "GitHub-канал обновлений подключён. Новые версии расширения автоматически собираются в ZIP после изменений исходников."
+  "notes": "PRIDE KEEPER Helper v5.0.0: модульная база, состав, ответы, жалобы, аналитика, история и настройки."
 }
