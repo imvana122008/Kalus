@@ -18,14 +18,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          export PYTHONIOENCODING=utf-8:backslashreplace
           python3 - <<'PY'
-          import html,re,urllib.parse,urllib.request,urllib.error
+          import html,re,urllib.parse,urllib.request
           UA={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/154 Safari/537.36'}
           def get(url):
             r=urllib.request.urlopen(urllib.request.Request(url,headers=UA),timeout=25)
             b=r.read().decode('utf-8','replace')
             print('URL',url,'STATUS',r.status,'TYPE',r.headers.get('content-type'),'BYTES',len(b))
             return b,r.geturl()
+          def safe(s):
+            return s.encode('utf-8','backslashreplace').decode('utf-8')
           pages=['https://vp.szx.su/api/rules','https://vp.szx.su/api','https://vp.szx.su/api/docs']
           for page in pages:
             try: b,final=get(page)
@@ -35,18 +38,19 @@ jobs:
               scripts.append(urllib.parse.urljoin(final,html.unescape(m.group(1))))
             print('SCRIPTS',page,len(scripts))
             for u in dict.fromkeys(scripts):
+              if '/app/' not in u and '/1049-' not in u: continue
               try: js,_=get(u)
               except Exception as e: print('SCRIPT_ERROR',u,repr(e)); continue
               low=js.lower()
-              if not any(x in low for x in ['api key','api_key','bearer','token','лимит','запрещ','разреш','external/','authorization','rate']): continue
-              for needle in ['Правила','Запрещ','Разреш','лимит','token','Bearer','Authorization','api_key','API ключ','external/','price','market','shops']:
+              if not any(x in low for x in ['api key','api_key','bearer','token','лимит','запрещ','разреш','authorization','rate','/v1/','price','market']): continue
+              for needle in ['Правила','Запрещ','Разреш','лимит','токен','token','Bearer','Authorization','api_key','API ключ','/v1/','price','market','shop']:
                 start=0
-                for _ in range(12):
+                for _ in range(16):
                   pos=low.find(needle.lower(),start)
                   if pos<0: break
-                  frag=re.sub(r'\\u([0-9a-fA-F]{4})',lambda m: chr(int(m.group(1),16)),js[max(0,pos-900):min(len(js),pos+2200)])
+                  frag=js[max(0,pos-750):min(len(js),pos+1800)]
                   frag=frag.replace('\\n',' ').replace('\\"','"')
                   frag=re.sub(r'\s+',' ',frag)
-                  print('CTX',page,needle,u,frag[:3000])
+                  print('CTX',page,needle,u,safe(frag[:2400]))
                   start=pos+len(needle)
           PY
