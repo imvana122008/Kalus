@@ -12,28 +12,41 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 8
     steps:
       - name: Read public developer API pages
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import re,urllib.request,urllib.error
+          import html,re,urllib.parse,urllib.request,urllib.error
           UA={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/154 Safari/537.36'}
-          for url in ['https://vp.szx.su/api/rules','https://vp.szx.su/api','https://vp.szx.su/api/docs']:
-            try:
-              r=urllib.request.urlopen(urllib.request.Request(url,headers=UA),timeout=25)
-              b=r.read().decode('utf-8','replace')
-              print('URL',url,'STATUS',r.status,'TYPE',r.headers.get('content-type'),'BYTES',len(b))
-              text=re.sub(r'<script[\s\S]*?</script>',' ',b,flags=re.I)
-              text=re.sub(r'<style[\s\S]*?</style>',' ',text,flags=re.I)
-              text=re.sub(r'<[^>]+>',' ',text)
-              text=re.sub(r'\s+',' ',text)
-              print('TEXT',text[:10000])
-              for m in re.finditer(r'https?://[^\"\'\s<>]+|/(?:api|external)/[A-Za-z0-9_./?=&%:-]+',b,re.I):
-                print('TOKEN',m.group(0)[:600])
-            except urllib.error.HTTPError as e:
-              print('URL',url,'STATUS',e.code,'BODY',e.read()[:2000].decode('utf-8','replace'))
-            except Exception as e: print('ERROR',url,repr(e))
+          def get(url):
+            r=urllib.request.urlopen(urllib.request.Request(url,headers=UA),timeout=25)
+            b=r.read().decode('utf-8','replace')
+            print('URL',url,'STATUS',r.status,'TYPE',r.headers.get('content-type'),'BYTES',len(b))
+            return b,r.geturl()
+          pages=['https://vp.szx.su/api/rules','https://vp.szx.su/api','https://vp.szx.su/api/docs']
+          for page in pages:
+            try: b,final=get(page)
+            except Exception as e: print('ERROR',page,repr(e)); continue
+            scripts=[]
+            for m in re.finditer(r'''src=[\"']([^\"']+\.js[^\"']*)[\"']''',b,re.I):
+              scripts.append(urllib.parse.urljoin(final,html.unescape(m.group(1))))
+            print('SCRIPTS',page,len(scripts))
+            for u in dict.fromkeys(scripts):
+              try: js,_=get(u)
+              except Exception as e: print('SCRIPT_ERROR',u,repr(e)); continue
+              low=js.lower()
+              if not any(x in low for x in ['api key','api_key','bearer','token','лимит','запрещ','разреш','external/','authorization','rate']): continue
+              for needle in ['Правила','Запрещ','Разреш','лимит','token','Bearer','Authorization','api_key','API ключ','external/','price','market','shops']:
+                start=0
+                for _ in range(12):
+                  pos=low.find(needle.lower(),start)
+                  if pos<0: break
+                  frag=re.sub(r'\\u([0-9a-fA-F]{4})',lambda m: chr(int(m.group(1),16)),js[max(0,pos-900):min(len(js),pos+2200)])
+                  frag=frag.replace('\\n',' ').replace('\\"','"')
+                  frag=re.sub(r'\s+',' ',frag)
+                  print('CTX',page,needle,u,frag[:3000])
+                  start=pos+len(needle)
           PY
