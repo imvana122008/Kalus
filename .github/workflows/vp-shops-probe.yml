@@ -1,4 +1,4 @@
-name: Probe VP shops price source
+name: Probe VP public market endpoint
 
 on:
   push:
@@ -12,72 +12,25 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 3
     steps:
-      - name: Probe VP market endpoints
+      - name: Single polite VP request
         shell: bash
         run: |
           set -euo pipefail
+          echo 'Waiting before the only API request...'
+          sleep 12
           python3 - <<'PY'
-          import html,re,urllib.parse,urllib.request,urllib.error
-          UA={'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/154 Safari/537.36'}
-          def raw(url):
-            req=urllib.request.Request(url,headers=UA)
-            try:
+          import urllib.request, urllib.error
+          url='https://api.szx.su/external/items/market?item_id=1&server_id=4&period=1y'
+          req=urllib.request.Request(url,headers={'User-Agent':'Kalus-Chandler/price-source-check (+https://github.com/imvana122008/Kalus)','Accept':'application/json'})
+          try:
               with urllib.request.urlopen(req,timeout=25) as r:
-                b=r.read(); print('HTTP',r.status,url,'TYPE',r.headers.get('content-type'),'BYTES',len(b)); return b.decode('utf-8','replace'),r.geturl()
-            except urllib.error.HTTPError as e:
-              b=e.read(); print('HTTP',e.code,url,'TYPE',e.headers.get('content-type'),'BYTES',len(b),'BODY',b[:500].decode('utf-8','replace')); return '',url
-            except Exception as e:
-              print('ERROR',url,repr(e)); return '',url
-          text,final=raw('https://vp.szx.su/shops')
-          attrs=[]
-          for m in re.finditer(r'''(?:href|src)=[\"']([^\"']+)[\"']''',text,re.I): attrs.append(urllib.parse.urljoin(final,html.unescape(m.group(1))))
-          scripts=list(dict.fromkeys(u for u in attrs if re.search(r'\.js(?:\?|$)',u,re.I)))
-          for u in scripts:
-            js,_=raw(u)
-            for needle in ['/external/items/market?item_id=','/market/price-table','/external/items/shops/salt','api.szx.su']:
-              pos=js.find(needle)
-              if pos>=0:
-                frag=re.sub(r'\s+',' ',js[max(0,pos-650):pos+1200])
-                print('CONTEXT',needle,u,frag[:1800])
-          for u in [
-            'https://api.szx.su/openapi.json',
-            'https://api.szx.su/docs',
-            'https://api.szx.su/api/docs',
-            'https://api.szx.su/external/items/market?item_id=1',
-            'https://api.szx.su/external/items/market?item_id=1&server_id=4',
-            'https://api.szx.su/external/items/shops?server_id=4'
-          ]: raw(u)
-          PY
-
-      - name: Inspect Sakai public Firefox package for UID mechanism
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fL --retry 2 -A 'Mozilla/5.0' 'https://addons.mozilla.org/firefox/downloads/file/5026218/arizona_helper_by_sakai-12.7.xpi' -o sakai.xpi
-          rm -rf sakai && mkdir sakai && unzip -q sakai.xpi -d sakai
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-          root=Path('sakai')
-          print('SAKAI_FILES',sum(1 for p in root.rglob('*') if p.is_file()))
-          hits=0
-          endpoint=set()
-          for p in root.rglob('*'):
-            if not p.is_file() or p.suffix.lower() not in {'.js','.json','.html','.css','.ts','.tsx'}: continue
-            try: s=p.read_text('utf-8',errors='ignore')
-            except: continue
-            for x in re.findall(r'https?://[^\"\'\\\s<>]+',s):
-              if 'shinoa' in x.lower() or 'arztools' in x.lower(): endpoint.add(x[:300])
-            for m in re.finditer(r'logs\.shinoa|items\.shinoa|uid|player[_-]?id|edit/player',s,re.I):
-              if hits>=120: break
-              a=max(0,m.start()-260); b=min(len(s),m.end()+520)
-              frag=re.sub(r'\s+',' ',s[a:b])
-              if 'shinoa' in frag.lower() or 'uid' in frag.lower():
-                print('SAKAI_CONTEXT',p.as_posix(),frag[:900]); hits+=1
-            if hits>=120: break
-          print('SAKAI_ENDPOINTS_BEGIN')
-          for x in sorted(endpoint): print('SAKAI_ENDPOINT',x)
-          print('SAKAI_ENDPOINTS_END')
+                  body=r.read()
+                  print('HTTP',r.status,'TYPE',r.headers.get('content-type'),'BYTES',len(body))
+                  print('BODY',body[:4000].decode('utf-8','replace'))
+          except urllib.error.HTTPError as e:
+              body=e.read()
+              print('HTTP',e.code,'TYPE',e.headers.get('content-type'),'BYTES',len(body))
+              print('BODY',body[:4000].decode('utf-8','replace'))
           PY
