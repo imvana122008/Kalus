@@ -11,5 +11,7 @@
   ],
   "sha256": "9f42910852aa2b2aab9636cd3831b78fcff819991857468f8bfec46594e21bb0",
   "releasedAt": "2026-10-04T06:40:00Z",
-  "notes": "Chrome-only 1.5.0: Shinoa /api/v1/name UID lookup, modular settings, seven lightweight palettes, optional native LogsParser colors, VP-first opportunistic price lookup, and nightly GitHub market snapshot."
+  "notes": "Chrome-only 1.5.0: Shinoa /api/v1/name UID lookup, modular settings, seven lightweight palettes, optional native LogsParser colors, VP-first opportunistic price lookup, and nightly GitHub market snapshot.",
+  "url": "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/Kalus_Chandler_1.5.0_patch.zip.b64",
+  "encoding": "base64"
 }
