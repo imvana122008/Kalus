@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '15 1 * * *'
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/chandler-nightly.yml'
+      - 'tools/refresh_chandler_market.py'
+      - 'kalus-chandler/releases/latest.json'
 
 permissions:
   contents: write
@@ -63,7 +68,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- extensions/chandler-hover/market-live.json; then
+          if [[ -z "$(git status --porcelain -- extensions/chandler-hover/market-live.json)" ]]; then
             echo 'Market data did not change.'
             exit 0
           fi
