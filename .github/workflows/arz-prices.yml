@@ -1,6 +1,9 @@
 name: Arizona item prices
 on:
   workflow_dispatch:
+  schedule:
+    # Night refresh window. GitHub cron is UTC: five passes from 00:17 to 04:17.
+    - cron: '17 0-4 * * *'
 permissions:
   contents: read
   id-token: write
@@ -17,5 +20,5 @@ jobs:
         run: npm install --prefix .github/arz-prices --no-save --silent playwright-core@1.55.0
       - name: Verify price parser
         run: node --test .github/arz-prices/refresh.test.cjs
-      - name: Update Site price cache
+      - name: Update price cache
         run: node .github/arz-prices/refresh.cjs
