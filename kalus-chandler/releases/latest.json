@@ -1,13 +1,9 @@
 {
-  "version": "1.4.4",
+  "version": "1.5.0",
   "channel": "stable",
-  "parts": [
-    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.4.4/part01.b64",
-    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.4.4/part02.b64"
-  ],
-  "sha256": "94ec622ebc7db48b5eaf2542b34ae4a826498554dbd3ab446624ba5c4d8a0aca",
-  "releasedAt": "2026-09-30T21:25:00Z",
-  "notes": "Authenticated Shinoa UID lookup + automatic self-heal from the visible 5-minute updater to a hidden hourly updater.",
-  "url": "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/Kalus_Chandler_1.4.4_patch.zip.b64",
-  "encoding": "base64"
+  "url": "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/Kalus_Chandler_1.5.0_patch.zip.b64",
+  "encoding": "base64",
+  "sha256": "9f42910852aa2b2aab9636cd3831b78fcff819991857468f8bfec46594e21bb0",
+  "releasedAt": "2026-10-04T06:40:00Z",
+  "notes": "Chrome-only 1.5.0: Shinoa /api/v1/name UID lookup, modular settings, seven lightweight palettes, optional native LogsParser colors, VP-first opportunistic price lookup, and nightly GitHub market snapshot."
 }
