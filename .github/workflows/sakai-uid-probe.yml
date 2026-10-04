@@ -1,0 +1,43 @@
+name: Probe Sakai Shinoa UID route
+
+on:
+  push:
+    paths:
+      - '.github/workflows/sakai-uid-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect public XPI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL -A 'Mozilla/5.0' 'https://addons.mozilla.org/firefox/downloads/file/5026218/arizona_helper_by_sakai-12.7.xpi' -o sakai.xpi
+          rm -rf sakai && mkdir sakai && unzip -q sakai.xpi -d sakai
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for name in ['background.js','script.js']:
+            p=Path('sakai')/name
+            s=p.read_text('utf-8',errors='ignore')
+            print('FILE',name,'BYTES',len(s))
+            needles=['SHINOA_TECH_URL','shinoaUnauthorized','res.punish','res.name','logs.shinoa.tech/api','fetch-shinoa','shinoa','punish']
+            seen=[]
+            for needle in needles:
+              start=0
+              count=0
+              while count<12:
+                pos=s.lower().find(needle.lower(),start)
+                if pos<0: break
+                frag=re.sub(r'\s+',' ',s[max(0,pos-900):min(len(s),pos+1900)])
+                key=frag[:220]
+                if key not in seen:
+                  seen.append(key); print('CTX',name,needle,frag[:2800])
+                start=pos+len(needle); count+=1
+          PY
