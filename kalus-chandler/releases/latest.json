@@ -13,5 +13,7 @@
   ],
   "sha256": "a5ad1d5ac4cf976ad452bbb216be94b88023b1ecc27ba88a353f814130842b08",
   "releasedAt": "2026-10-04T20:15:00Z",
-  "notes": "Chrome-only 1.5.1: Shinoa /api/v1/name UID lookup with XSRF session, modular lightweight menu, complete original-site theme off switch, eight solid palettes, performance throttling and nightly GitHub price-cache refresh."
+  "notes": "Chrome-only 1.5.1: Shinoa /api/v1/name UID lookup with XSRF session, modular lightweight menu, complete original-site theme off switch, eight solid palettes, performance throttling and nightly GitHub price-cache refresh.",
+  "url": "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/Kalus_Chandler_1.5.1_patch.zip.b64",
+  "encoding": "base64"
 }
