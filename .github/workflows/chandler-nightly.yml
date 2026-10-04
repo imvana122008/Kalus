@@ -18,17 +18,47 @@ jobs:
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Refresh market snapshot
+
+      - name: Refresh fallback market snapshot
         run: python3 tools/refresh_chandler_market.py
-      - name: Verify Chrome extension
-        working-directory: extensions/chandler-hover
+
+      - name: Rebuild and verify the actual published Chrome release
+        shell: bash
         run: |
-          node --check background.js
-          node --check content.js
-          node --check ui.js
-          node --test extension.test.cjs
-          python3 -m json.tool manifest.json >/dev/null
-          python3 -m json.tool shinoa_rules.json >/dev/null
+          set -euo pipefail
+          rm -rf /tmp/kalus-release && mkdir -p /tmp/kalus-release
+          python3 - <<'PY'
+          import base64, hashlib, json, urllib.request, zipfile
+          from pathlib import Path
+          latest = json.loads(Path('kalus-chandler/releases/latest.json').read_text())
+          req = urllib.request.Request(latest['url'], headers={'User-Agent':'Kalus-Nightly-Validator/1.0'})
+          data = urllib.request.urlopen(req, timeout=30).read()
+          if latest.get('encoding') == 'base64':
+              data = base64.b64decode(data)
+          digest = hashlib.sha256(data).hexdigest()
+          if digest != latest['sha256']:
+              raise SystemExit(f"SHA mismatch: {digest} != {latest['sha256']}")
+          archive = Path('/tmp/kalus-release/release.zip')
+          archive.write_bytes(data)
+          with zipfile.ZipFile(archive) as z:
+              z.extractall('/tmp/kalus-release/ext')
+          manifest = json.loads(Path('/tmp/kalus-release/ext/manifest.json').read_text())
+          if manifest['version'] != latest['version']:
+              raise SystemExit('Manifest/latest version mismatch')
+          if manifest.get('manifest_version') != 3:
+              raise SystemExit('Not MV3')
+          perms = set(manifest.get('permissions', []))
+          if {'tabs','scripting'} & perms:
+              raise SystemExit('Legacy tab/scripting UID mechanism returned')
+          if not {'cookies','declarativeNetRequest'} <= perms:
+              raise SystemExit('Shinoa permissions missing')
+          print('Verified published', latest['version'], digest)
+          PY
+          node --check /tmp/kalus-release/ext/background.js
+          node --check /tmp/kalus-release/ext/content.js
+          node --check /tmp/kalus-release/ext/ui.js
+          python3 -m json.tool /tmp/kalus-release/ext/shinoa_rules.json >/dev/null
+
       - name: Commit refreshed data when changed
         shell: bash
         run: |
