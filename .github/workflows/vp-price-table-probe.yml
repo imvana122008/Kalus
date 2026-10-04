@@ -17,6 +17,7 @@ jobs:
       - name: Inspect price-table page
         shell: bash
         run: |
+          # probe revision 2026-10-04b
           set -euo pipefail
           python3 - <<'PY'
           import html,re,urllib.parse,urllib.request,urllib.error
