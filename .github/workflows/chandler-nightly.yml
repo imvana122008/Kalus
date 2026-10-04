@@ -1,0 +1,44 @@
+name: Kalus Chandler nightly market
+
+on:
+  schedule:
+    - cron: '15 1 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kalus-chandler-nightly
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refresh market snapshot
+        run: python3 tools/refresh_chandler_market.py
+      - name: Verify Chrome extension
+        working-directory: extensions/chandler-hover
+        run: |
+          node --check background.js
+          node --check content.js
+          node --check ui.js
+          node --test extension.test.cjs
+          python3 -m json.tool manifest.json >/dev/null
+          python3 -m json.tool shinoa_rules.json >/dev/null
+      - name: Commit refreshed data when changed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- extensions/chandler-hover/market-live.json; then
+            echo 'Market data did not change.'
+            exit 0
+          fi
+          git config user.name 'Kalus Nightly Bot'
+          git config user.email '255565601+imvana122008@users.noreply.github.com'
+          git add extensions/chandler-hover/market-live.json
+          git commit -m 'Refresh Chandler market snapshot'
+          git push
