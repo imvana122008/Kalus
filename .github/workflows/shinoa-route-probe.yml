@@ -1,0 +1,39 @@
+name: Probe Shinoa UID route
+
+on:
+  push:
+    paths:
+      - '.github/workflows/shinoa-route-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect public Sakai package Shinoa route
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fL --retry 2 -A 'Mozilla/5.0' 'https://addons.mozilla.org/firefox/downloads/file/5026218/arizona_helper_by_sakai-12.7.xpi' -o sakai.xpi
+          rm -rf sakai && mkdir sakai && unzip -q sakai.xpi -d sakai
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          for p in [Path('sakai/background.js'), Path('sakai/script.js')]:
+            s=p.read_text('utf-8',errors='ignore')
+            needles=['unauthenticated','punish','SHINOA_TECH_URL','logs.shinoa.tech/api','nickname-tooltips','shinoaStatus']
+            print('FILE',p)
+            for needle in needles:
+              start=0
+              while True:
+                i=s.find(needle,start)
+                if i<0: break
+                a=max(0,i-1400); b=min(len(s),i+2600)
+                frag=re.sub(r'\s+',' ',s[a:b])
+                print('MATCH',needle,frag[:3900])
+                start=i+len(needle)
+          PY
