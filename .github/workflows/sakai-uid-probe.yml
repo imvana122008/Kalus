@@ -23,21 +23,22 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-          for name in ['background.js','script.js']:
-            p=Path('sakai')/name
-            s=p.read_text('utf-8',errors='ignore')
-            print('FILE',name,'BYTES',len(s))
-            needles=['SHINOA_TECH_URL','shinoaUnauthorized','res.punish','res.name','logs.shinoa.tech/api','fetch-shinoa','shinoa','punish']
-            seen=[]
-            for needle in needles:
-              start=0
-              count=0
-              while count<12:
-                pos=s.lower().find(needle.lower(),start)
-                if pos<0: break
-                frag=re.sub(r'\s+',' ',s[max(0,pos-900):min(len(s),pos+1900)])
-                key=frag[:220]
-                if key not in seen:
-                  seen.append(key); print('CTX',name,needle,frag[:2800])
-                start=pos+len(needle); count+=1
+          s=(Path('sakai')/'script.js').read_text('utf-8',errors='ignore')
+          for needle in ['function getPlayerName','const getPlayerName','getPlayerName =','LOG_ID_TO_PREFIX_ID_MAP','shinoa-player-info']:
+            start=0
+            for i in range(10):
+              pos=s.find(needle,start)
+              if pos<0: break
+              frag=re.sub(r'\s+',' ',s[max(0,pos-1200):min(len(s),pos+3200)])
+              print('CTX',needle,frag[:4300])
+              start=pos+len(needle)
+          bg=(Path('sakai')/'background.js').read_text('utf-8',errors='ignore')
+          for needle in ['LOG_ID_TO_PREFIX_ID_MAP','/api/v1/name','shinoa-player-info']:
+            start=0
+            for i in range(8):
+              pos=bg.find(needle,start)
+              if pos<0: break
+              frag=re.sub(r'\s+',' ',bg[max(0,pos-1200):min(len(bg),pos+3000)])
+              print('BGCTX',needle,frag[:4200])
+              start=pos+len(needle)
           PY
