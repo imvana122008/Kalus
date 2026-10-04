@@ -1,0 +1,70 @@
+name: Probe VP shops price source
+
+on:
+  push:
+    paths:
+      - '.github/workflows/vp-shops-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect shops page and JS bundles
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import html, json, re, urllib.parse, urllib.request
+
+          UA = {'User-Agent':'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/154 Safari/537.36'}
+          def get(url):
+              req=urllib.request.Request(url,headers=UA)
+              with urllib.request.urlopen(req,timeout=25) as r:
+                  data=r.read()
+                  ctype=r.headers.get('content-type','')
+                  print('FETCH',r.status,url,'TYPE',ctype,'BYTES',len(data))
+                  return data.decode('utf-8','replace'), r.geturl()
+
+          base='https://vp.szx.su/shops'
+          text, final=get(base)
+          print('FINAL_URL',final)
+          low=text.lower()
+          print('HAS_AVG_WORD', any(x in low for x in ['средн','average','avg','median','price']))
+          print('TITLE', re.findall(r'<title[^>]*>(.*?)</title>', text, re.I|re.S)[:2])
+
+          attrs=[]
+          for m in re.finditer(r'''(?:href|src)=[\"']([^\"']+)[\"']''', text, re.I):
+              u=html.unescape(m.group(1))
+              attrs.append(urllib.parse.urljoin(final,u))
+          attrs=list(dict.fromkeys(attrs))
+          print('ATTRS_TOTAL',len(attrs))
+          for u in attrs:
+              if re.search(r'api|shop|price|avg|average|mean|median|market',u,re.I):
+                  print('PAGE_CANDIDATE',u)
+
+          scripts=[u for u in attrs if re.search(r'\.js(?:\?|$)',u,re.I)][:80]
+          found=set()
+          token_rx=re.compile(r'''(?:https?://[^\"'\\\s<>]+|/[A-Za-z0-9_./?=&%:-]{4,})''')
+          for i,u in enumerate(scripts):
+              try:
+                  js,_=get(u)
+              except Exception as e:
+                  print('SCRIPT_ERROR',u,repr(e)); continue
+              for token in token_rx.findall(js):
+                  t=html.unescape(token).replace('\\/','/')
+                  if re.search(r'api|shop|price|avg|average|mean|median|market',t,re.I):
+                      if len(t)<350: found.add(t)
+              # print nearby strings around Russian/English price labels
+              for m in re.finditer(r'средн|average|avgPrice|median|shops?',js,re.I):
+                  s=max(0,m.start()-140); e=min(len(js),m.end()+220)
+                  frag=re.sub(r'\s+',' ',js[s:e])
+                  if len(frag)<600: print('JS_CONTEXT',u,frag[:560])
+          print('TOKENS_BEGIN')
+          for t in sorted(found): print('TOKEN',t)
+          print('TOKENS_END')
+          PY
