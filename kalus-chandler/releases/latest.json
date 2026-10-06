@@ -1,9 +1,13 @@
 {
-  "version": "1.5.2",
+  "version": "1.5.3",
   "channel": "stable",
-  "sha256": "407c6908759485763cf1555aec85a2a4867162e924c4229be394dc873f4c245a",
-  "releasedAt": "2026-10-06T01:30:00Z",
-  "notes": "Chrome-only hotfix 1.5.2: fixes the infinite reload loop caused by stale update-state markers. Older markers no longer reload newer code, and each new target version can trigger at most one reload.",
-  "url": "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/Kalus_Chandler_1.5.2_hotfix_patch.zip.b64",
-  "encoding": "base64"
+  "parts": [
+    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.5.3/part01.b64",
+    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.5.3/part02.b64",
+    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.5.3/part03a.b64",
+    "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/1.5.3/part03b.b64"
+  ],
+  "sha256": "74b85bec720238ad33a9475939046b0210935eec16e2e4f433fb07499f113485",
+  "releasedAt": "2026-10-06T03:45:00Z",
+  "notes": "Chrome-only 1.5.3 stability hotfix: removes automatic chrome.runtime.reload and the one-minute reload alarm entirely. Windows AutoUpdate still updates files silently, but unpacked Chrome applies new code only on the next browser start or one manual Reload. The scheduled task is reconciled to hidden hourly mode on every updater run instead of trusting a stale marker file."
 }
