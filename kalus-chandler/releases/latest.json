@@ -9,5 +9,7 @@
   ],
   "sha256": "74b85bec720238ad33a9475939046b0210935eec16e2e4f433fb07499f113485",
   "releasedAt": "2026-10-06T03:45:00Z",
-  "notes": "Chrome-only 1.5.3 stability hotfix: removes automatic chrome.runtime.reload and the one-minute reload alarm entirely. Windows AutoUpdate still updates files silently, but unpacked Chrome applies new code only on the next browser start or one manual Reload. The scheduled task is reconciled to hidden hourly mode on every updater run instead of trusting a stale marker file."
+  "notes": "Chrome-only 1.5.3 stability hotfix: removes automatic chrome.runtime.reload and the one-minute reload alarm entirely. Windows AutoUpdate still updates files silently, but unpacked Chrome applies new code only on the next browser start or one manual Reload. The scheduled task is reconciled to hidden hourly mode on every updater run instead of trusting a stale marker file.",
+  "url": "https://raw.githubusercontent.com/imvana122008/Kalus/main/kalus-chandler/releases/Kalus_Chandler_1.5.3_patch.zip.b64",
+  "encoding": "base64"
 }
