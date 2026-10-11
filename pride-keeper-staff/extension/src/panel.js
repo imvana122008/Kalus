@@ -88,7 +88,7 @@
   }
   function staffViewTemplate(currentContext = context || {}) {
     const available = currentContext.kind === 'staff';
-    return `<div class="pkfa-page-head" tabindex="-1"><i>♟</i><div><b>STAFF EDITOR</b><span>Управление составом темы №1623</span></div><button type="button" data-discard-staff>Отменить черновик</button></div><section class="pkfa-hero-v4"><div><small>STAFF ENGINE v5</small><h1>Редактор состава PRIDE KEEPER</h1><p>${available ? 'Рабочая область состава загружается внутри Helper.' : 'Откройте тему №1623, чтобы редактировать состав.'}</p></div><b>PK</b></section><div data-staff-workspace-host${available ? '' : ' aria-disabled="true"'}></div><div class="pkfa-notice ${available ? 'success' : ''}">Разработчики не изменяются. Quick Reply не используется для сохранения состава.</div>`;
+    return `<div class="pkfa-page-head" tabindex="-1"><i>♟</i><div><b>STAFF EDITOR</b><span>Управление составом темы №1646</span></div><button type="button" data-discard-staff>Отменить черновик</button></div><section class="pkfa-hero-v4"><div><small>STAFF ENGINE v5</small><h1>Редактор состава PRIDE KEEPER</h1><p>${available ? 'Рабочая область состава загружается внутри Helper.' : 'Откройте тему №1646, чтобы редактировать состав.'}</p></div><b>PK</b></section><div data-staff-workspace-host${available ? '' : ' aria-disabled="true"'}></div><div class="pkfa-notice ${available ? 'success' : ''}">Разработчики не изменяются. Quick Reply не используется для сохранения состава.</div>`;
   }
   function staffView() { return staffViewTemplate(context); }
   function repliesView() {

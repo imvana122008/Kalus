@@ -1,5 +1,19 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+
+test('Inter font is bundled, licensed and available to the forum without remote font requests', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const root = path.join(__dirname, '..');
+  const css = fs.readFileSync(path.join(root, 'src/panel.css'), 'utf8');
+  assert.match(css, /@font-face\s*\{[^}]*font-family:\s*['"]Inter['"]/);
+  assert.match(css, /\.\.\/assets\/InterVariable\.woff2/);
+  const font = fs.readFileSync(path.join(root, 'assets/InterVariable.woff2'));
+  assert.equal(font.subarray(0, 4).toString(), 'wOF2');
+  assert.match(fs.readFileSync(path.join(root, 'assets/Inter-LICENSE.txt'), 'utf8'), /SIL OPEN FONT LICENSE/);
+  const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json')));
+  assert.ok(manifest.web_accessible_resources.some(group => group.resources.includes('assets/InterVariable.woff2')));
+});
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 

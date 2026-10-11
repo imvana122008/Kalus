@@ -1,6 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+test('new staff thread 1646 enables the workspace and only its first-post edit', () => {
+  const gate = require('../src/staff-gate.js');
+  const context = require('../src/context.js');
+  assert.equal(gate.shouldRunStaff('/threads/1646/'), true);
+  assert.equal(context.classify({ pathname: '/threads/1646/' }), 'staff');
+  assert.equal(gate.canPublish({ threadId: '1646', postIds: ['5000'], actions: [{ type: 'edit', postId: '5000', href: 'https://forum.pridekeeper.tech/posts/5000/edit' }] }), true);
+  assert.equal(gate.canPublish({ threadId: '1646', isFirstThreadPage: false, postIds: ['5000'], actions: [{ type: 'edit', postId: '5000', href: 'https://forum.pridekeeper.tech/posts/5000/edit' }] }), false);
+});
+
 let gate = {};
 try { gate = require('../src/staff-gate.js'); } catch (_) {}
 

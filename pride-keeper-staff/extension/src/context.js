@@ -23,7 +23,7 @@
 
   function classify({ pathname = '', complaint = false } = {}) {
     const threadId = parseThreadId(pathname);
-    if (threadId === '1623') return 'staff';
+    if (['1623', '1646'].includes(threadId)) return 'staff';
     if (threadId && complaint) return 'complaint';
     if (threadId) return 'thread';
     if (/\/posts\/\d+\/edit/i.test(pathname)) return 'post-edit';
@@ -102,7 +102,7 @@
       threadId,
       postIds: [...new Set(postIds)],
       isFirstThreadPage: !/\/page-(?:[2-9]|\d{2,})(?:\/|$)/i.test(pathname),
-      isStaffThread: threadId === '1623',
+      isStaffThread: ['1623', '1646'].includes(threadId),
       isComplaint: complaint,
       title: doc?.querySelector?.('h1')?.textContent?.trim() || doc?.title || '',
       profile: collectProfile(doc),

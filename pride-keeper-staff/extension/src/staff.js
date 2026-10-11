@@ -1,10 +1,10 @@
 (() => {
   const staffPathAllowed = window.PKFA?.staffGate?.shouldRunStaff
     ? window.PKFA.staffGate.shouldRunStaff(location.pathname, location.hash)
-    : (/\/threads\/(?:[^/?#]+\.)?1623(?:\/|$)/i.test(location.pathname) || (/\/posts\/\d+\/edit\/?$/i.test(location.pathname) && location.hash === "#pkfa-staff-publish"));
+    : (/\/threads\/(?:[^/?#]+\.)?(?:1623|1646)(?:\/|$)/i.test(location.pathname) || (/\/posts\/\d+\/edit\/?$/i.test(location.pathname) && location.hash === "#pkfa-staff-publish"));
   if (!staffPathAllowed) return;
   if (window.__PRIDE_KEEPER_STAFF__) return;
-  window.__PRIDE_KEEPER_STAFF__ = "5.0.0";
+  window.__PRIDE_KEEPER_STAFF__ = "5.0.1";
 
   // ============================================================
   // PRIDE KEEPER STAFF — ОСНОВНЫЕ НАСТРОЙКИ
@@ -12,7 +12,7 @@
   // Если ты кидаешь мне правки в чат, я дальше меняю именно этот файл.
   // ============================================================
   const CONFIG = {
-    version: "5.0.0",
+    version: "5.0.1",
 
     storageKey: "kalusStaffEditorState",
     codeCacheKey: "prideKeeperStaffGeneratedCode",
@@ -339,12 +339,43 @@
     link.setAttribute("href", clean);
   }
 
+  function saveMemberDraft(state, base, item, data) {
+    if (!ALLOWED_SECTIONS.includes(data.section)) return { ok: false, reason: "protected-section" };
+    const identity = memberIdentity(data);
+    const duplicate = mergeSnapshot(base, state).items.find(candidate =>
+      !candidate.hidden && memberIdentity(candidate) === identity &&
+      !(candidate.key === item?.key && candidate.kind === item?.kind));
+    if (duplicate) return { ok: false, reason: "duplicate-member" };
+
+    const record = { ...data, forum: `${location.origin}/members/${extractForumId(data.forumId || data.forum)}/`, hidden: false };
+    // Explicit re-add supersedes a deletion tombstone and stale added records.
+    for (const [key, override] of Object.entries(state.overrides)) {
+      if (override.hidden && hiddenOverrideIdentities({ [key]: override }).has(identity)) delete state.overrides[key];
+    }
+    const original = base.items.find(candidate => memberIdentity(candidate) === identity);
+    if (item?.kind === "existing" || original) {
+      const key = item?.kind === "existing" ? item.key : original.key;
+      state.overrides[key] = { ...state.overrides[key], ...record };
+      state.added = state.added.filter(candidate => memberIdentity(candidate) !== identity);
+    } else {
+      const id = item?.key || `added:${Date.now()}:${Math.random().toString(36).slice(2,8)}`;
+      state.added = state.added.filter(candidate => candidate.id !== id && memberIdentity(candidate) !== identity);
+      state.added.push({ id, kind: "added", ...record });
+    }
+    return { ok: true };
+  }
+
   async function patchCard(card, data) {
     const nameEl = card.querySelector(".name");
     const role = card.querySelector("strong");
     const avatar = card.querySelector(".avatar");
-    const vk = getVkLink(card);
-    const forum = getForumLink(card);
+    let vk = getVkLink(card);
+    let forum = getForumLink(card);
+
+    let links = card.querySelector('.links');
+    if (!links) { links = card.ownerDocument.createElement('div'); links.className = 'links'; card.appendChild(links); }
+    if (!vk && data.vk) { vk = card.ownerDocument.createElement('a'); vk.textContent = 'VK'; links.appendChild(vk); }
+    if (!forum && data.forum) { forum = card.ownerDocument.createElement('a'); forum.textContent = 'Форум'; links.appendChild(forum); }
 
     if (nameEl) nameEl.textContent = data.name || "";
     if (role) role.textContent = data.role || "";
@@ -370,7 +401,12 @@
 
   function makeCardFromTemplate(root, sectionId, fallbackCard = null) {
     const template = findTemplateCard(root, sectionId) || fallbackCard;
-    if (!template) return null;
+    if (!template) {
+      const card = (root.ownerDocument || document).createElement('div');
+      card.className = 'card';
+      card.innerHTML = '<div class="avatar-container"><img class="avatar" alt=""></div><div class="name"></div><div class="position"><strong></strong></div><div class="links"></div>';
+      return card;
+    }
     const card = template.cloneNode(true);
     card.removeAttribute("style");
     return card;
@@ -433,12 +469,14 @@
       const section = clone.querySelector(`#${CSS.escape(id)}`);
       if (!allowedSection(section)) continue;
       section.querySelectorAll(".cards > .card").forEach((card) => {
-        cardByKey.set(getCardKey(card, id), { card, sectionId: id });
+        const key = getCardKey(card, id);
+        if (!cardByKey.has(key)) cardByKey.set(key, []);
+        cardByKey.get(key).push({ card, sectionId: id });
       });
     }
 
     for (const baseItem of base.items) {
-      const entry = cardByKey.get(baseItem.key);
+      const entry = cardByKey.get(baseItem.key)?.shift();
       if (!entry) continue;
 
       const o = state.overrides?.[baseItem.key];
@@ -489,7 +527,7 @@
       const targetCards = targetSection?.querySelector(".cards");
       if (!allowedSection(targetSection) || !targetCards) continue;
 
-      const fallback = clone.querySelector(".cards > .card");
+      const fallback = ALLOWED_SECTIONS.map(id => findTemplateCard(clone, id)).find(Boolean);
       const newCard = makeCardFromTemplate(clone, item.section, fallback);
       if (!newCard) continue;
 
@@ -661,7 +699,7 @@
   }
 
   function findFirstPostEdit(context = {}) {
-    if (String(context.threadId || "") !== "1623") return null;
+    if (!["1623", "1646"].includes(String(context.threadId || ""))) return null;
     if (context.isFirstThreadPage === false) return null;
     const firstPostId = String(context.postIds?.[0] || "");
     if (!firstPostId) return null;
@@ -805,12 +843,14 @@
   }
 
   async function updateAutoPublishStatus(status, extra = {}) {
-    const state = await getState();
-    state.autoPublish ||= {};
-    state.autoPublish.lastStatus = status;
-    Object.assign(state.autoPublish, extra);
-    // Не используем setState(), иначе это снова запустит автосохранение.
-    await persistStaffState(state);
+    const store = staffStore || window.PKFA?.store;
+    const patchStatus = state => {
+      state.autoPublish ||= {};
+      Object.assign(state.autoPublish, extra, { lastStatus: status });
+    };
+    // Update metadata inside the shared queue; never write a stale staff snapshot.
+    if (store?.update) await store.update(full => { patchStatus(full.staff); return full; });
+    else { const state = await getState(); patchStatus(state); await persistStaffState(state); }
     try {
       if (typeof toast !== "undefined") {
         const map = {
@@ -889,10 +929,7 @@
         createdAt: Date.now()
       };
 
-      const fresh = await getState();
-      fresh.autoPublish.targetPostId = postId;
-      fresh.autoPublish.lastStatus = "editing";
-      await persistStaffState(fresh);
+      await updateAutoPublishStatus("editing", { targetPostId: postId });
       await chrome.storage.local.set({ [PUBLISH_JOB_KEY]: job });
 
       // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ:
@@ -950,7 +987,10 @@
       // В визуальном режиме Froala превращает [PARSEHTML] в набор <p> и
       // может сохранить код как обычный текст. Сначала включаем BBCode-режим,
       // затем заменяем содержимое существующего сообщения.
-      await ensureBbCodeMode(editForm);
+      if (!await ensureBbCodeMode(editForm)) {
+        await updateAutoPublishStatus("no_editor");
+        return false;
+      }
 
       syncKnownEditorMirrors(editForm, htmlToEditorText(job.code));
       setNativeValue(editor, htmlToEditorText(job.code));
@@ -1043,7 +1083,7 @@
       launcher.hidden = true;
       backdrop.classList.add("embedded");
       backdrop.classList.remove("hidden");
-      Promise.resolve(render()).catch(() => {});
+      Promise.resolve(refreshData()).then(() => render()).catch(() => {});
     }
     return { isDirty, discardChanges, preparePublish };
   }
@@ -1584,7 +1624,7 @@
       });
     });
 
-    content.querySelector("[data-go-code]").addEventListener("click", () => setScreen("code"));
+    bottomActions.querySelector("[data-go-code]")?.addEventListener("click", () => setScreen("code"));
     bindAvatarFallbacks();
   }
 
@@ -1712,16 +1752,8 @@
 
       const state = await getState();
 
-      if (item?.kind === "existing") {
-        const cur = state.overrides[item.key] || {};
-        state.overrides[item.key] = { ...cur, ...data, hidden: !!cur.hidden };
-      } else {
-        const id = item?.key || `added:${Date.now()}:${Math.random().toString(36).slice(2,8)}`;
-        const rec = { id, kind: "added", ...data, hidden: false };
-        const idx = state.added.findIndex(x => x.id === id);
-        if (idx >= 0) state.added[idx] = rec;
-        else state.added.push(rec);
-      }
+      const saved = saveMemberDraft(state, baseSnapshot, item, data);
+      if (!saved.ok) { say(saved.reason === 'duplicate-member' ? 'Этот человек уже есть в составе' : 'Раздел защищён', true); return false; }
 
       await setState(state);
       await refreshData();

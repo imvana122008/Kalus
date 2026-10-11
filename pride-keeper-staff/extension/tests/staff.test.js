@@ -88,11 +88,53 @@ function loadLogic() {
   };
   sandbox.window = sandbox;
 
-  const instrumented = `${beforeUi}\nObject.assign(__staffExports, { serializeCode, mergeSnapshot, findPostEditForm, completePendingPublishOnEditPage, autoSaveCodeToForum, findFirstPostEdit, mountWorkspace, isDirty, discardChanges, preparePublish, allowedSection, getState, setState, buildSelectModel: typeof buildSelectModel === 'function' ? buildSelectModel : undefined, nextSelectIndex: typeof nextSelectIndex === 'function' ? nextSelectIndex : undefined });\n})();`;
+  const instrumented = `${beforeUi}\nObject.assign(__staffExports, { saveMemberDraft: typeof saveMemberDraft === 'function' ? saveMemberDraft : undefined, makeCardFromTemplate, serializeCode, mergeSnapshot, findPostEditForm, completePendingPublishOnEditPage, autoSaveCodeToForum, findFirstPostEdit, mountWorkspace, isDirty, discardChanges, preparePublish, allowedSection, getState, setState, buildSelectModel: typeof buildSelectModel === 'function' ? buildSelectModel : undefined, nextSelectIndex: typeof nextSelectIndex === 'function' ? nextSelectIndex : undefined });\n})();`;
   vm.runInNewContext(instrumented, sandbox, { filename: 'PRIDE_KEEPER_Staff.js' });
 
   return { ...sandbox.__staffExports, forms, memory, documentMock, locationMock, FakeElement, FakeTextArea, FakeForm };
 }
+
+for (const section of ['management', 'main-mod', 'curator', 'senior-mod', 'junior-mod']) {
+  test(`draft lifecycle in ${section}: create, duplicate, move, reload, remove and re-add`, () => {
+    const { saveMemberDraft, mergeSnapshot } = loadLogic();
+    const state = { overrides: {}, added: [] };
+    const base = { sections: [], items: [] };
+    const member = { name: 'New_Member', section, forum: '/members/test.2501/', forumId: '2501' };
+    const saved = saveMemberDraft(state, base, null, member);
+    assert.equal(saved.ok, true);
+    assert.equal(state.added.length, 1);
+    assert.equal(mergeSnapshot(base, JSON.parse(JSON.stringify(state))).items[0].name, member.name);
+    assert.equal(saveMemberDraft(state, base, null, member).reason, 'duplicate-member');
+    assert.equal(state.added.length, 1);
+    const added = mergeSnapshot(base, state).items[0];
+    const destination = section === 'management' ? 'main-mod' : 'management';
+    assert.equal(saveMemberDraft(state, base, added, { ...member, section: destination }).ok, true);
+    assert.equal(mergeSnapshot(base, state).items[0].section, destination);
+    state.added = [];
+    state.overrides['forum:/members/test.2501/'] = { ...member, hidden: true };
+    assert.equal(saveMemberDraft(state, base, null, member).ok, true);
+    assert.equal(mergeSnapshot(base, state).items.filter(item => !item.hidden).length, 1);
+    const published = { ...member, key: 'forum:/members/test.2501/', kind: 'existing' };
+    assert.equal(mergeSnapshot({ sections: [], items: [published] }, state).items.length, 1);
+  });
+}
+
+test('draft creation rejects developer section without mutation', () => {
+  const { saveMemberDraft } = loadLogic();
+  const state = { overrides: {}, added: [] };
+  assert.equal(saveMemberDraft(state, { items: [] }, null, { section: 'developers', name: 'Dev', forumId: '1' }).ok, false);
+  assert.equal(state.added.length, 0);
+});
+
+test('empty composition creates a card without borrowing developer content', () => {
+  const { makeCardFromTemplate } = loadLogic();
+  const card = { innerHTML: '' };
+  const root = { querySelector: () => null, ownerDocument: { createElement: () => card } };
+  assert.equal(makeCardFromTemplate(root, 'management'), card);
+  assert.equal(card.className, 'card');
+  assert.match(card.innerHTML, /class="name"/);
+  assert.match(card.innerHTML, /class="links"/);
+});
 
 test('custom staff dropdown exposes dark menu options with one selected item', () => {
   const { buildSelectModel } = loadLogic();
