@@ -21,9 +21,22 @@
     return !!snapshot.hasComplaintStatus || /жалоб|appeal|report/.test(category);
   }
 
-  function classify({ pathname = '', complaint = false } = {}) {
+  const STAFF_SECTIONS = ['management', 'main-mod', 'curator', 'senior-mod', 'junior-mod'];
+  function findStaffPost(doc) {
+    const first = doc?.querySelector?.('article.message, .message, [id^="post-"]');
+    const wrapper = first?.querySelector?.('.bbWrapper');
+    if (!wrapper) return null;
+    const sections = STAFF_SECTIONS.filter(id => {
+      const section = wrapper.querySelector(`#${id}`);
+      const title = section?.querySelector('h2')?.textContent || '';
+      return section?.querySelector('.cards') && !/разработ|developer/i.test(title);
+    });
+    return sections.length >= 2 ? first : null;
+  }
+
+  function classify({ pathname = '', complaint = false, staff = false } = {}) {
     const threadId = parseThreadId(pathname);
-    if (['1623', '1646'].includes(threadId)) return 'staff';
+    if (threadId && staff) return 'staff';
     if (threadId && complaint) return 'complaint';
     if (threadId) return 'thread';
     if (/\/posts\/\d+\/edit/i.test(pathname)) return 'post-edit';
@@ -88,6 +101,8 @@
   function inspectDocument(doc, loc) {
     const pathname = loc?.pathname || '';
     const threadId = parseThreadId(pathname);
+    const staffPost = findStaffPost(doc);
+    const isStaffThread = !!threadId && !!staffPost;
     const categoryText = [...(doc?.querySelectorAll?.('.p-breadcrumbs a, .breadcrumbs a') || [])]
       .map((node) => node.textContent || '').join(' ');
     const complaint = isComplaintSnapshot({
@@ -98,11 +113,12 @@
       .map((node) => parsePostId(node.id || '') || parsePostId(node.querySelector?.('a[href*="/posts/"]')?.getAttribute('href') || ''))
       .filter(Boolean);
     return {
-      kind: classify({ pathname, complaint }),
+      kind: classify({ pathname, complaint, staff: isStaffThread }),
       threadId,
       postIds: [...new Set(postIds)],
       isFirstThreadPage: !/\/page-(?:[2-9]|\d{2,})(?:\/|$)/i.test(pathname),
-      isStaffThread: ['1623', '1646'].includes(threadId),
+      isStaffThread,
+      staffPostId: isStaffThread ? parsePostId(staffPost.id || '') : '',
       isComplaint: complaint,
       title: doc?.querySelector?.('h1')?.textContent?.trim() || doc?.title || '',
       profile: collectProfile(doc),
@@ -133,6 +149,7 @@
     isEffectivelyVisible,
     detectDocumentActions,
     collectProfile,
-    inspectDocument
+    inspectDocument,
+    findStaffPost
   };
 });

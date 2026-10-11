@@ -22,7 +22,8 @@ test('ignores controls hidden by an ancestor', () => {
 });
 
 test('classifies staff, complaint and regular pages', () => {
-  assert.equal(context.classify?.({ pathname: '/threads/1623/', complaint: false }), 'staff');
+  assert.equal(context.classify?.({ pathname: '/threads/9000/', staff: true }), 'staff');
+  assert.equal(context.classify?.({ pathname: '/threads/1623/', complaint: false }), 'thread');
   assert.equal(context.classify?.({ pathname: '/threads/report.77/', complaint: true }), 'complaint');
   assert.equal(context.classify?.({ pathname: '/threads/news.88/', complaint: false }), 'thread');
   assert.equal(context.classify?.({ pathname: '/account/', complaint: false }), 'other');

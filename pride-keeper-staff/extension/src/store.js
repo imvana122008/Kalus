@@ -35,7 +35,8 @@
       recentThreads: [],
       history: [],
       favorites: [],
-      staff: { overrides: {}, added: [], hidden: [], ui: { position: 'right-bottom', size: 'standard' }, autoPublish: { enabled: true, targetPostId: '' } }
+      staff: { overrides: {}, added: [], hidden: [], ui: { position: 'right-bottom', size: 'standard' }, autoPublish: { enabled: true, targetPostId: '' } },
+      staffByThread: {}
     };
   }
 
@@ -87,6 +88,7 @@
       next.staff.overrides = isPlainObject(staffSource.overrides) ? clone(staffSource.overrides) : {};
       next.staff.added = arrayGroup(staffSource.added);
       next.staff.hidden = arrayGroup(staffSource.hidden);
+      next.staffByThread = isPlainObject(existing.staffByThread) ? clone(existing.staffByThread) : {};
       next.templates = arrayGroup(existing.templates, defaults.templates);
       next.history = normalizeHistory(existing.history);
       next.tags = arrayGroup(existing.tags);
@@ -123,18 +125,36 @@
   }
 
   let updateQueue = Promise.resolve();
+  function staffForThread(state, threadId) {
+    const key = String(threadId || '');
+    if (state.staffByThread?.[key]) return objectGroup(state.staffByThread[key], defaultState().staff);
+    // Migrate the previous single-thread draft only into its former home.
+    if (key === '1646') return objectGroup(state.staff, defaultState().staff);
+    return clone(defaultState().staff);
+  }
+
+  function setStaffForThread(state, threadId, staff) {
+    const key = String(threadId || '');
+    if (!/^\d+$/.test(key)) throw new Error('Missing staff thread');
+    state.staffByThread ||= {};
+    state.staffByThread[key] = clone(staff);
+    if (key === '1646') state.staff = clone(staff);
+    return state;
+  }
   function update(mutator) {
-    const operation = updateQueue.catch(() => undefined).then(async () => {
+    const perform = async () => {
       const state = await getState();
       const result = await mutator(state);
       const next = result && typeof result === 'object' ? result : state;
       next.version = 5;
       if (root.chrome?.storage?.local) await root.chrome.storage.local.set({ [KEY]: next });
       return next;
-    });
+    };
+    const operation = updateQueue.catch(() => undefined).then(() =>
+      root.navigator?.locks?.request ? root.navigator.locks.request(KEY + ':update', perform) : perform());
     updateQueue = operation.catch(() => undefined);
     return operation;
   }
 
-  return { KEY, V4_KEY, V3_KEY, PREVIOUS_KEYS, LEGACY_KEY, builtInTemplates, defaultState, migrateState, getState, update };
+  return { KEY, V4_KEY, V3_KEY, PREVIOUS_KEYS, LEGACY_KEY, builtInTemplates, defaultState, migrateState, getState, update, staffForThread, setStaffForThread };
 });

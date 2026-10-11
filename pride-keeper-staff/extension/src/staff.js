@@ -1,10 +1,12 @@
 (() => {
   const staffPathAllowed = window.PKFA?.staffGate?.shouldRunStaff
     ? window.PKFA.staffGate.shouldRunStaff(location.pathname, location.hash)
-    : (/\/threads\/(?:[^/?#]+\.)?(?:1623|1646)(?:\/|$)/i.test(location.pathname) || (/\/posts\/\d+\/edit\/?$/i.test(location.pathname) && location.hash === "#pkfa-staff-publish"));
+    : (/\/threads\/(?:[^/?#]+\.)?\d+(?:\/|$)/i.test(location.pathname) || (/\/posts\/\d+\/edit\/?$/i.test(location.pathname) && /^#pkfa-staff-publish(?:=[\w-]+)?$/.test(location.hash)));
   if (!staffPathAllowed) return;
+  const initialContext = window.PKFA?.context?.inspectDocument?.(document, location);
+  if (/\/threads\//i.test(location.pathname) && initialContext && !initialContext.isStaffThread) return;
   if (window.__PRIDE_KEEPER_STAFF__) return;
-  window.__PRIDE_KEEPER_STAFF__ = "5.0.1";
+  window.__PRIDE_KEEPER_STAFF__ = "5.0.2";
 
   // ============================================================
   // PRIDE KEEPER STAFF — ОСНОВНЫЕ НАСТРОЙКИ
@@ -12,7 +14,7 @@
   // Если ты кидаешь мне правки в чат, я дальше меняю именно этот файл.
   // ============================================================
   const CONFIG = {
-    version: "5.0.1",
+    version: "5.0.2",
 
     storageKey: "kalusStaffEditorState",
     codeCacheKey: "prideKeeperStaffGeneratedCode",
@@ -33,11 +35,12 @@
     ],
 
     roles: [
-      "Руководство",
-      "Главная модерация",
-      "Кураторы модерации",
-      "Старшие модераторы",
-      "Модераторы"
+      "Главный модератор",
+      "Заместитель главного модератора",
+      "Куратор модерации",
+      "Старший модератор",
+      "Модератор",
+      "Руководство"
     ],
 
     autoPublish: {
@@ -56,12 +59,15 @@
   };
 
   const STORAGE_KEY = CONFIG.storageKey;
-  const CODE_CACHE_KEY = CONFIG.codeCacheKey;
+  let threadScope = location.pathname.match(/\/threads\/(?:[^/?#]+\.)?(\d+)(?:\/|$)/i)?.[1] || "";
+  const codeCacheKey = () => `${CONFIG.codeCacheKey}:${threadScope}`;
   const PUBLISH_JOB_KEY = "prideKeeperStaffPublishJob";
+  const publishJobKey = postId => `${PUBLISH_JOB_KEY}:${postId}`;
   const ALLOWED_SECTIONS = CONFIG.sections.map(x => x.id);
   const ROLE_OPTIONS = [...CONFIG.roles];
   const SECTION_COLORS = Object.fromEntries(CONFIG.sections.map(x => [x.id, x.color]));
   let staffDirty = false;
+  let staffBusy = false;
   let workspaceBaseline = null;
   let staffStore = null;
 
@@ -86,11 +92,12 @@
     const store = staffStore || window.PKFA?.store;
     if (store?.getState) {
       const full = await store.getState();
-      const state = full?.staff || defaultState();
+      const state = store.staffForThread ? store.staffForThread(full, threadScope) : full?.staff || defaultState();
       return JSON.parse(JSON.stringify(state));
     }
-    const result = await chrome.storage.local.get([STORAGE_KEY]);
-    const state = result?.[STORAGE_KEY] || defaultState();
+    const key = threadScope ? `${STORAGE_KEY}:${threadScope}` : STORAGE_KEY;
+    const result = await chrome.storage.local.get([key]);
+    const state = result?.[key] || defaultState();
     state.overrides ||= {};
     state.added ||= [];
     state.ui ||= { position: "right-bottom", size: "standard" };
@@ -105,8 +112,11 @@
 
   async function persistStaffState(state) {
     const store = staffStore || window.PKFA?.store;
-    if (store?.update) await store.update(full => { full.staff = JSON.parse(JSON.stringify(state)); return full; });
-    else await chrome.storage.local.set({ [STORAGE_KEY]: state });
+    if (store?.update) await store.update(full => {
+      if (store.setStaffForThread) return store.setStaffForThread(full, threadScope, state);
+      full.staff = JSON.parse(JSON.stringify(state)); return full;
+    });
+    else await chrome.storage.local.set({ [threadScope ? `${STORAGE_KEY}:${threadScope}` : STORAGE_KEY]: state });
   }
 
   async function setState(state) {
@@ -115,6 +125,28 @@
     staffDirty = false;
     queueCodeSync();
     queueForumAutoSave();
+  }
+
+  async function updateStaffState(mutator, { sync = true } = {}) {
+    const store = staffStore || window.PKFA?.store;
+    let saved = null;
+    if (store?.update) {
+      await store.update(full => {
+        const state = store.staffForThread ? store.staffForThread(full, threadScope) : JSON.parse(JSON.stringify(full.staff));
+        if (mutator(state) === false) return full;
+        saved = JSON.parse(JSON.stringify(state));
+        if (store.setStaffForThread) return store.setStaffForThread(full, threadScope, state);
+        full.staff = state; return full;
+      });
+    } else {
+      const state = await getState();
+      if (mutator(state) === false) return null;
+      await persistStaffState(state); saved = state;
+    }
+    if (!saved) return null;
+    workspaceBaseline = JSON.parse(JSON.stringify(saved)); staffDirty = false;
+    if (sync) { queueCodeSync(); queueForumAutoSave(); }
+    return saved;
   }
 
   function esc(v = "") {
@@ -455,8 +487,10 @@
   }
 
   async function generateCode(state, sourcePostId = "") {
-    const sourcePost = sourcePostId ? findPostById(sourcePostId) : null;
-    const sourceWrapper = sourcePostId ? sourcePost?.querySelector?.(".bbWrapper") : document.querySelector(".bbWrapper");
+    const managedPost = window.PKFA?.context?.findStaffPost?.(document);
+    const sourcePost = sourcePostId ? findPostById(sourcePostId) : managedPost;
+    if (sourcePostId && managedPost && sourcePost !== managedPost) return { ok: false, error: "Состав находится в другом посте" };
+    const sourceWrapper = sourcePost?.querySelector?.(".bbWrapper") || (!window.PKFA?.context?.findStaffPost && !sourcePostId ? document.querySelector(".bbWrapper") : null);
     if (!sourceWrapper) {
       return { ok: false, error: "Не найден блок состава (.bbWrapper). Открой страницу с составом." };
     }
@@ -514,7 +548,7 @@
       }
     }
 
-    const baseIdentities = new Set(base.items.map(memberIdentity).filter(Boolean));
+    const baseIdentities = new Set(scanRoot(clone).items.map(memberIdentity).filter(Boolean));
     const deletedIdentities = hiddenOverrideIdentities(state.overrides);
 
     for (const item of state.added || []) {
@@ -574,7 +608,7 @@
           updatedAt: Date.now()
         };
 
-        await chrome.storage.local.set({ [CODE_CACHE_KEY]: cache });
+        await chrome.storage.local.set({ [codeCacheKey()]: cache });
 
         // Если экран кода сейчас открыт, обновляем текст прямо на глазах.
         try {
@@ -699,10 +733,10 @@
   }
 
   function findFirstPostEdit(context = {}) {
-    if (!["1623", "1646"].includes(String(context.threadId || ""))) return null;
+    if (!context.threadId || !context.isStaffThread) return null;
     if (context.isFirstThreadPage === false) return null;
     const firstPostId = String(context.postIds?.[0] || "");
-    if (!firstPostId) return null;
+    if (!firstPostId || (context.staffPostId && String(context.staffPostId) !== firstPostId)) return null;
     return (context.actions || []).find(item => {
       if (item.type !== "edit" || String(item.postId || "") !== firstPostId) return false;
       try {
@@ -849,7 +883,12 @@
       Object.assign(state.autoPublish, extra, { lastStatus: status });
     };
     // Update metadata inside the shared queue; never write a stale staff snapshot.
-    if (store?.update) await store.update(full => { patchStatus(full.staff); return full; });
+    if (store?.update) await store.update(full => {
+      const staff = store.staffForThread ? store.staffForThread(full, threadScope) : full.staff;
+      patchStatus(staff);
+      if (store.setStaffForThread) return store.setStaffForThread(full, threadScope, staff);
+      return full;
+    });
     else { const state = await getState(); patchStatus(state); await persistStaffState(state); }
     try {
       if (typeof toast !== "undefined") {
@@ -876,9 +915,13 @@
     }, delay);
   }
 
-  async function autoSaveCodeToForum() {
+  function staffContentSignature(state) {
+    return JSON.stringify({ overrides: state.overrides || {}, added: state.added || [] });
+  }
+
+  async function autoSaveCodeToForum({ force = false } = {}) {
     const state = await getState();
-    if (!state.autoPublish?.enabled) return;
+    if (!force && !state.autoPublish?.enabled) return;
 
     if (forumSaveRunning) {
       forumSaveQueued = true;
@@ -905,7 +948,7 @@
 
       const code = result.code;
       await chrome.storage.local.set({
-        [CODE_CACHE_KEY]: { code, updatedAt: Date.now() }
+        [codeCacheKey()]: { code, updatedAt: Date.now() }
       });
 
       const editLink = firstAction.element || null;
@@ -922,6 +965,9 @@
       }
 
       const job = {
+        token: crypto.randomUUID(),
+        contentSignature: staffContentSignature(state),
+        threadId: threadScope,
         postId,
         editUrl: editUrl.href,
         returnUrl: location.href,
@@ -930,12 +976,20 @@
       };
 
       await updateAutoPublishStatus("editing", { targetPostId: postId });
-      await chrome.storage.local.set({ [PUBLISH_JOB_KEY]: job });
+      const writeJob = async () => {
+        if (staffContentSignature(await getState()) !== job.contentSignature) return false;
+        await chrome.storage.local.set({ [publishJobKey(postId)]: job });
+        return true;
+      };
+      const written = window.navigator?.locks?.request
+        ? await window.navigator.locks.request(publishJobKey(postId), writeJob)
+        : await writeJob();
+      if (!written) { forumSaveQueued = true; return; }
 
       // КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ:
       // не пытаемся редактировать quick-reply на текущей странице.
       // Переходим ровно на /posts/ID/edit, как ты делаешь вручную.
-      editUrl.hash = "pkfa-staff-publish";
+      editUrl.hash = `pkfa-staff-publish=${job.token}`;
       location.href = editUrl.href;
 
     } catch (e) {
@@ -950,17 +1004,28 @@
     }
   }
 
-  async function completePendingPublishOnEditPage() {
+  async function completePendingPublishOnEditPage(locked = false) {
     const postId = getCurrentEditPostId();
     if (!postId) return false;
+    if (!locked && window.navigator?.locks?.request) {
+      return window.navigator.locks.request(publishJobKey(postId), () => completePendingPublishOnEditPage(true));
+    }
 
-    const stored = await chrome.storage.local.get([PUBLISH_JOB_KEY]);
-    const job = stored?.[PUBLISH_JOB_KEY];
+    const stored = await chrome.storage.local.get([publishJobKey(postId), PUBLISH_JOB_KEY]);
+    const jobKey = stored?.[publishJobKey(postId)] ? publishJobKey(postId) : PUBLISH_JOB_KEY;
+    const job = stored?.[jobKey];
     if (!job || String(job.postId) !== String(postId) || !job.code) return false;
+    if (job.token && location.hash !== `#pkfa-staff-publish=${job.token}`) return false;
+    if (job.threadId) {
+      const returnUrl = new URL(job.returnUrl || '', location.origin);
+      const returnThread = returnUrl.pathname.match(/\/threads\/(?:[^/?#]+\.)?(\d+)(?:\/|$)/i)?.[1];
+      if (returnUrl.origin !== location.origin || returnThread !== String(job.threadId)) return false;
+      threadScope = String(job.threadId);
+    } else if (window.PKFA?.store?.setStaffForThread) return false;
 
     // Защита от старого зависшего задания.
     if (Date.now() - Number(job.createdAt || 0) > 2 * 60 * 1000) {
-      await chrome.storage.local.remove([PUBLISH_JOB_KEY]);
+      await chrome.storage.local.remove([jobKey]);
       return false;
     }
 
@@ -1007,8 +1072,16 @@
 
       await updateAutoPublishStatus("saving", { targetPostId: postId });
 
+      const latest = (await chrome.storage.local.get([jobKey]))?.[jobKey];
+      if (!latest || latest.token !== job.token || latest.createdAt !== job.createdAt || latest.code !== job.code) return false;
+      if (job.contentSignature && staffContentSignature(await getState()) !== job.contentSignature) {
+        await chrome.storage.local.remove([jobKey]);
+        await updateAutoPublishStatus('stale_draft');
+        return false;
+      }
+
       // Задание удаляем перед нажатием, чтобы после редиректа не повторить сохранение.
-      await chrome.storage.local.remove([PUBLISH_JOB_KEY]);
+      await chrome.storage.local.remove([jobKey]);
 
       saveButton.click();
       staffDirty = false;
@@ -1026,15 +1099,14 @@
   }
 
   function isDirty() {
-    return staffDirty;
+    return staffDirty || staffBusy;
   }
 
   async function discardChanges() {
-    if (workspaceBaseline) {
-      await persistStaffState(JSON.parse(JSON.stringify(workspaceBaseline)));
-    }
+    if (staffBusy) return false;
     staffDirty = false;
     if (typeof refreshData === "function") await refreshData();
+    if (typeof editContext !== 'undefined') editContext = null;
     return true;
   }
 
@@ -1081,8 +1153,29 @@
     }
     if (typeof backdrop !== "undefined" && workspaceElement === host) {
       launcher.hidden = true;
-      backdrop.classList.add("embedded");
+      backdrop.classList.add("workspace");
       backdrop.classList.remove("hidden");
+      const region = backdrop.querySelector('.k-window, .k-workspace');
+      region.className = 'k-workspace';
+      region.setAttribute('role', 'region');
+      region.setAttribute('aria-label', 'Состав текущей темы');
+      region.removeAttribute('aria-modal');
+      region.querySelector('.k-header')?.remove();
+      if (!region.querySelector('[data-staff-navigation]')) {
+        const navigation = document.createElement('nav');
+        navigation.setAttribute('data-staff-navigation', '');
+        navigation.setAttribute('aria-label', 'Редактор состава');
+        navigation.className = 'k-workspace-nav';
+        navigation.innerHTML = [['staff', 'Состав'], ['code', 'Код поста'], ['backup', 'Резервная копия'], ['settings', 'Настройки']]
+          .map(([id, title]) => `<button class="k-btn" data-workspace-screen="${id}">${title}</button>`).join('');
+        navigation.addEventListener('click', event => {
+          const button = event.target.closest('[data-workspace-screen]');
+          if (button) { history = []; setScreen(button.dataset.workspaceScreen, false); }
+        });
+        region.prepend(navigation);
+      }
+      if (screen === 'home') screen = 'staff';
+      backdrop.querySelectorAll('[data-workspace-screen]').forEach(button => button.setAttribute('aria-current', button.dataset.workspaceScreen === screen ? 'page' : 'false'));
       Promise.resolve(refreshData()).then(() => render()).catch(() => {});
     }
     return { isDirty, discardChanges, preparePublish };
@@ -1256,8 +1349,28 @@
     }
     .k-bottom-left,.k-bottom-right{display:flex;gap:7px;align-items:center}
     .k-toast{font-size:9px;color:#72e2b0;max-width:270px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .k-backdrop.embedded{position:relative;inset:auto;z-index:auto;background:transparent;backdrop-filter:none;display:block;padding:0;width:100%;min-height:620px}
-    .k-backdrop.embedded .k-window{width:100%;height:620px;max-width:none;box-shadow:none}
+    :host{display:block;container-type:inline-size;container-name:staff}
+    .k-backdrop.workspace{position:static;inset:auto;z-index:auto;background:transparent;backdrop-filter:none;display:block;padding:0;width:100%;font-size:14px}
+    .k-workspace{width:100%;background:none;border:0;border-radius:0;box-shadow:none;overflow:visible}
+    .workspace .k-body{display:block;overflow:visible}
+    .workspace .k-scroll{overflow:visible;padding:0}
+    .k-workspace-nav{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px;padding:0 0 14px;border-bottom:1px solid #2c3543}
+    .k-workspace-nav [aria-current=page]{background:#8a73ff;color:white;border-color:#8a73ff}
+    .workspace .k-btn{font-size:12px;min-height:36px;padding:8px 12px}
+    .workspace .k-bottom{height:auto;min-height:54px;padding:12px 0;margin-top:16px;background:transparent;border-color:#2c3543;flex-wrap:wrap}
+    .workspace .k-toast{font-size:12px;white-space:normal;max-width:none}
+    .workspace .k-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+    .workspace .k-person{padding:14px;border-radius:12px}
+    .workspace .k-name{font-size:13px;line-height:1.4;overflow-wrap:anywhere;white-space:normal;text-overflow:clip}
+    .workspace .k-role{font-size:10px;white-space:normal;line-height:1.4;max-width:100%}
+    .workspace .k-toptext strong{font-size:15px}.workspace .k-toptext span{font-size:12px;line-height:1.5}
+    .workspace .k-section-title{font-size:14px}.workspace .k-field label{font-size:12px}
+    .workspace .k-field input,.workspace .k-search input,.workspace .k-select__button{font-size:13px;min-height:40px}
+    .workspace .k-select__option{font-size:12px;padding:10px}.workspace .k-hint{font-size:11px;line-height:1.5}
+    .workspace .k-form{gap:14px}.workspace .k-topcard{margin-bottom:16px;padding:14px;background:#121923;border-color:#2c3543}
+    .workspace .k-codearea{font:12px/1.6 Consolas,monospace;height:420px}.workspace .k-codeinfo{font-size:12px;line-height:1.5;padding:12px}
+    .workspace .k-importarea{font-size:12px;line-height:1.6;height:220px}.workspace .k-choice{font-size:12px;min-height:42px}.workspace .k-setting-card h4{font-size:13px}
+    @container staff (max-width:480px){.workspace .k-form,.workspace .k-settings{grid-template-columns:1fr}.workspace .k-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.workspace .k-toolbar{flex-wrap:wrap}.workspace .k-search{flex-basis:100%}.workspace .k-bottom-right{flex-wrap:wrap}.workspace .k-workspace-nav{gap:5px}.workspace .k-workspace-nav .k-btn{font-size:11px;padding:7px 8px}}
 
     @media(max-width:760px){
       .k-window{width:calc(100vw - 20px);height:calc(100vh - 20px)}
@@ -1317,6 +1430,7 @@
   const backBtn = backdrop.querySelector('[data-act="back"]');
 
   let screen = "home";
+  let renderEpoch = 0;
   let history = [];
   let baseSnapshot = { sections: [], items: [] };
   let snapshot = { sections: [], items: [] };
@@ -1337,19 +1451,22 @@
   }
 
   async function refreshData() {
-    baseSnapshot = scanRoot(document);
+    const managedPost = window.PKFA?.context?.findStaffPost?.(document);
+    baseSnapshot = scanRoot(managedPost || document);
     const state = await getState();
     snapshot = mergeSnapshot(baseSnapshot, state);
   }
 
   function setScreen(next, push = true) {
+    if (staffBusy) return;
     if (push && screen !== next) history.push(screen);
     screen = next;
+    backdrop.querySelectorAll('[data-workspace-screen]').forEach(button => button.setAttribute('aria-current', button.dataset.workspaceScreen === next ? 'page' : 'false'));
     render();
   }
 
   function goBack() {
-    if (!history.length) return setScreen("home", false);
+    if (!history.length) return setScreen(backdrop.classList.contains('workspace') ? "staff" : "home", false);
     screen = history.pop();
     render();
   }
@@ -1360,7 +1477,7 @@
   }
 
   function closeUI() {
-    if (backdrop.classList.contains("embedded")) {
+    if (backdrop.classList.contains("workspace")) {
       window.PKFA?.panel?.close?.();
       return;
     }
@@ -1382,8 +1499,7 @@
   }
 
   function roleForSection(id) {
-    const title = sectionTitle(id);
-    return ROLE_OPTIONS.includes(title) ? title : ROLE_OPTIONS[0];
+    return ({ management: 'Руководство', 'main-mod': 'Главный модератор', curator: 'Куратор модерации', 'senior-mod': 'Старший модератор', 'junior-mod': 'Модератор' })[id] || 'Модератор';
   }
 
   function findItem(key, kind) {
@@ -1391,8 +1507,9 @@
   }
 
   function roleOptions(selected) {
-    const pick = ROLE_OPTIONS.includes(selected) ? selected : ROLE_OPTIONS[0];
-    return ROLE_OPTIONS.map(v => `<option value="${esc(v)}"${v === pick ? " selected" : ""}>${esc(v)}</option>`).join("");
+    const pick = String(selected || ROLE_OPTIONS[0]);
+    const options = [...new Set([pick, ...ROLE_OPTIONS])];
+    return options.map(v => `<option value="${esc(v)}"${v === pick ? " selected" : ""}>${esc(v)}</option>`).join("");
   }
 
   function sectionOptions(selected) {
@@ -1608,7 +1725,7 @@
       });
       const second = card.querySelector('[data-do="remove"],[data-do="restore"]');
       second?.addEventListener("click", async () => {
-        const state = await getState();
+        await updateStaffState(state => {
         if (item.kind === "added") {
           if (item.hidden || second.dataset.do === "remove") {
             state.added = state.added.filter(x => x.id !== item.key);
@@ -1617,7 +1734,7 @@
           const cur = state.overrides[item.key] || {};
           state.overrides[item.key] = { ...cur, hidden: second.dataset.do === "remove" };
         }
-        await setState(state);
+        });
         await refreshData();
         renderStaff();
         say(second.dataset.do === "remove" ? "Изменение добавлено в черновик" : "Человек возвращён");
@@ -1633,7 +1750,7 @@
     const item = editContext?.item || null;
     const isNew = !item;
     const selectedSection = item?.section || editContext?.section || snapshot.sections[0]?.id || "management";
-    const selectedRole = ROLE_OPTIONS.includes(item?.role) ? item.role : roleForSection(selectedSection);
+    const selectedRole = item?.role || roleForSection(selectedSection);
 
     bottomActions.innerHTML = `
       ${!isNew ? `<button class="k-btn danger" data-remove>${item.kind === "added" ? "Удалить" : item.hidden ? "Вернуть" : "Убрать"}</button>` : ""}
@@ -1680,7 +1797,7 @@
     const roleSel = content.querySelector('[data-f="role"]');
     sectionSel.addEventListener("change", () => {
       const suggested = roleForSection(sectionSel.value);
-      if (ROLE_OPTIONS.includes(suggested)) {
+      if (isNew && ROLE_OPTIONS.includes(suggested)) {
         roleSel.value = suggested;
         roleSel.__pkfaSelectRefresh?.();
       }
@@ -1688,12 +1805,19 @@
     enhanceStyledSelect(sectionSel, value => SECTION_COLORS[value] || "#8a73ff");
     enhanceStyledSelect(roleSel, (_value, label) => roleTone(label));
 
+    const previewInput = content.querySelector('[data-f="forum"]');
+    const previewImg = content.querySelector('[data-preview-img]');
+    const previewFallback = content.querySelector('[data-preview-fallback]');
+    const previewStatus = content.querySelector('[data-preview-status]');
+    let previewRequest = 0;
     async function updatePreview() {
-      const forum = content.querySelector('[data-f="forum"]').value;
+      if (!content.contains(previewInput)) return;
+      const request = ++previewRequest;
+      const forum = previewInput.value;
       const id = extractForumId(forum);
-      const img = content.querySelector("[data-preview-img]");
-      const fb = content.querySelector("[data-preview-fallback]");
-      const st = content.querySelector("[data-preview-status]");
+      const img = previewImg;
+      const fb = previewFallback;
+      const st = previewStatus;
 
       img.style.display = "none";
       fb.style.display = "grid";
@@ -1707,6 +1831,7 @@
 
       st.textContent = `ID ${id} • ищу аватар...`;
       const resolved = await resolveAvatarPath(id);
+      if (request !== previewRequest || !content.contains(previewInput)) return;
       img.onload = () => {
         img.style.display = "block";
         fb.style.display = "none";
@@ -1738,6 +1863,7 @@
     });
 
     async function save(closeAfter = false) {
+      if (staffBusy) return false;
       const data = collect();
       if (!data.name) {
         say("Укажи форумный ник", true);
@@ -1750,17 +1876,23 @@
         return false;
       }
 
-      const state = await getState();
-
-      const saved = saveMemberDraft(state, baseSnapshot, item, data);
+      staffBusy = true;
+      backdrop.querySelectorAll('button').forEach(button => { button.disabled = true; });
+      try {
+      let saved;
+      await updateStaffState(state => { saved = saveMemberDraft(state, baseSnapshot, item, data); return saved.ok; });
       if (!saved.ok) { say(saved.reason === 'duplicate-member' ? 'Этот человек уже есть в составе' : 'Раздел защищён', true); return false; }
 
-      await setState(state);
       await refreshData();
       say("Сохранено • LIVE-код обновляется автоматически");
+      staffBusy = false;
       if (closeAfter) closeUI();
       else goBack();
       return true;
+      } finally {
+        staffBusy = false;
+        backdrop.querySelectorAll('button').forEach(button => { button.disabled = false; });
+      }
     }
 
     bottomActions.querySelector("[data-save]").addEventListener("click", () => save(false));
@@ -1768,14 +1900,14 @@
 
     const removeBtn = bottomActions.querySelector("[data-remove]");
     if (removeBtn) removeBtn.addEventListener("click", async () => {
-      const state = await getState();
+      await updateStaffState(state => {
       if (item.kind === "added") {
         state.added = state.added.filter(x => x.id !== item.key);
       } else {
         const cur = state.overrides[item.key] || {};
         state.overrides[item.key] = { ...cur, hidden: !item.hidden };
       }
-      await setState(state);
+      });
       await refreshData();
       say(item.hidden ? "Человек возвращён" : "Убран из итогового кода");
       goBack();
@@ -1783,6 +1915,7 @@
   }
 
   async function renderCode() {
+    const epoch = renderEpoch;
     backBtn.style.visibility = "visible";
     bottomActions.innerHTML = `
       <button class="k-btn green" data-publish>Сохранить на форум сейчас</button>
@@ -1799,17 +1932,19 @@
     `;
     const info = content.querySelector("[data-codeinfo]");
     const area = content.querySelector("[data-code]");
+    const active = () => screen === 'code' && epoch === renderEpoch;
+    bottomActions.querySelectorAll('button').forEach(button => { button.disabled = true; });
 
     // Показываем последнюю автоматически собранную версию сразу.
     try {
-      const cached = (await chrome.storage.local.get([CODE_CACHE_KEY]))?.[CODE_CACHE_KEY];
+      const cached = (await chrome.storage.local.get([codeCacheKey()]))?.[codeCacheKey()];
+      if (!active()) return;
       if (cached?.code) {
         currentCode = cached.code;
         area.value = cached.code;
         const ageSec = Math.max(0, Math.round((Date.now() - (cached.updatedAt || Date.now())) / 1000));
         info.textContent = `LIVE-код из черновика • обновлён ${ageSec} сек. назад • сейчас сверяю с текущей страницей...`;
         info.style.color = "#9c8cff";
-        bottomActions.querySelectorAll("button").forEach(b => b.disabled = false);
       } else {
         bottomActions.querySelectorAll("button").forEach(b => b.disabled = true);
       }
@@ -1820,16 +1955,18 @@
     try {
       const state = await getState();
       const result = await generateCode(state);
+      if (!active()) return;
       if (!result.ok) throw new Error(result.error || "Ошибка генерации");
 
       currentCode = result.code;
       area.value = currentCode;
       await chrome.storage.local.set({
-        [CODE_CACHE_KEY]: {
+        [codeCacheKey()]: {
           code: currentCode,
           updatedAt: Date.now()
         }
       });
+      if (!active()) return;
 
       info.textContent = `LIVE-код актуален • ${currentCode.length.toLocaleString("ru-RU")} символов • меняется автоматически после твоих правок`;
       info.style.color = "#9c8cff";
@@ -1850,9 +1987,11 @@
       if (closeAfter) setTimeout(closeUI, 250);
     }
 
+    if (!active()) return;
+
     bottomActions.querySelector("[data-publish]").addEventListener("click", async () => {
       say("Ищу «Изменить» и сохраняю...");
-      await autoSaveCodeToForum();
+      await autoSaveCodeToForum({ force: true });
     });
 
     bottomActions.querySelector("[data-copy]").addEventListener("click", () => copy(false));
@@ -1912,8 +2051,10 @@
   }
 
   async function renderSettings() {
+    const epoch = renderEpoch;
     backBtn.style.visibility = "visible";
     const state = await getState();
+    if (screen !== 'settings' || epoch !== renderEpoch) return;
     const ui = state.ui || defaultState().ui;
     bottomActions.innerHTML = `
       <button class="k-btn" data-save-settings>Сохранить</button>
@@ -1985,13 +2126,13 @@
     }));
 
     async function saveSettings(closeAfter) {
-      const st = await getState();
-      st.ui = draft;
-      st.autoPublish ||= {};
-      st.autoPublish.enabled = autoDraft.enabled;
+      const st = await updateStaffState(state => {
+        state.ui = draft;
+        state.autoPublish ||= {};
+        state.autoPublish.enabled = autoDraft.enabled;
+      }, { sync: false });
       // Сохраняем настройки напрямую, чтобы само включение настройки
       // не запускало публикацию лишний раз.
-      await persistStaffState(st);
       workspaceBaseline = JSON.parse(JSON.stringify(st));
       staffDirty = false;
       await applyLauncherSettings();
@@ -2004,6 +2145,7 @@
   }
 
   function render() {
+    renderEpoch++;
     if (screen === "home") return renderHome();
     if (screen === "staff") return renderStaff();
     if (screen === "edit") return renderEdit();

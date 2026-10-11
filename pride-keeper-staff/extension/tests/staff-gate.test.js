@@ -5,21 +5,21 @@ test('new staff thread 1646 enables the workspace and only its first-post edit',
   const gate = require('../src/staff-gate.js');
   const context = require('../src/context.js');
   assert.equal(gate.shouldRunStaff('/threads/1646/'), true);
-  assert.equal(context.classify({ pathname: '/threads/1646/' }), 'staff');
-  assert.equal(gate.canPublish({ threadId: '1646', postIds: ['5000'], actions: [{ type: 'edit', postId: '5000', href: 'https://forum.pridekeeper.tech/posts/5000/edit' }] }), true);
+  assert.equal(context.classify({ pathname: '/threads/1646/', staff: true }), 'staff');
+  assert.equal(gate.canPublish({ threadId: '1646', isStaffThread: true, postIds: ['5000'], actions: [{ type: 'edit', postId: '5000', href: 'https://forum.pridekeeper.tech/posts/5000/edit' }] }), true);
   assert.equal(gate.canPublish({ threadId: '1646', isFirstThreadPage: false, postIds: ['5000'], actions: [{ type: 'edit', postId: '5000', href: 'https://forum.pridekeeper.tech/posts/5000/edit' }] }), false);
 });
 
 let gate = {};
 try { gate = require('../src/staff-gate.js'); } catch (_) {}
 
-test('runs staff editor only in thread 1623 or its marked publish edit page', () => {
+test('checks all thread paths for composition structure and marked publish edit pages', () => {
   assert.equal(gate.shouldRunStaff?.('/threads/1623/'), true);
   assert.equal(gate.shouldRunStaff?.('/threads/test.1623/page-2'), true);
   assert.equal(gate.shouldRunStaff?.('/posts/4425/edit'), false);
   assert.equal(gate.shouldRunStaff?.('/posts/4425/edit', '#pkfa-staff-publish'), true);
   assert.equal(gate.shouldRunStaff?.('/posts/4425/edit', '#unrelated'), false);
-  assert.equal(gate.shouldRunStaff?.('/threads/900/'), false);
+  assert.equal(gate.shouldRunStaff?.('/threads/900/'), true);
   assert.equal(gate.shouldRunStaff?.('/account/'), false);
 });
 
@@ -45,10 +45,11 @@ test('does not append the legacy launcher when the unified shell is present', ()
 
 test('allows publishing only in staff thread with a first post and exact edit action', () => {
   const valid = {
-    threadId: '1623', postIds: ['4425', '4426'],
+    threadId: '9000', isStaffThread: true, postIds: ['4425', '4426'],
     actions: [{ type: 'edit', postId: '4425', href: '/posts/4425/edit' }]
   };
   assert.equal(gate.canPublish?.(valid), true);
-  assert.equal(gate.canPublish?.({ ...valid, threadId: '77' }), false);
+  assert.equal(gate.canPublish?.({ ...valid, isStaffThread: false }), false);
+  assert.equal(gate.canPublish?.({ ...valid, staffPostId: '4426' }), false);
   assert.equal(gate.canPublish?.({ ...valid, actions: [{ type: 'edit', postId: '4426', href: '/posts/4426/edit' }] }), false);
 });

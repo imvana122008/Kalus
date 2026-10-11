@@ -186,15 +186,35 @@ test('serializeCode removes redundant forum bbWrapper shells', () => {
   );
 });
 
-test('publish accepts only the first visible post edit href in thread 1623', () => {
+test('explicit publish works with automatic publication disabled and still requires the exact edit action', async () => {
+  const { autoSaveCodeToForum, memory, locationMock } = loadLogic();
+  locationMock.pathname = '/threads/9000/'; locationMock.hash = '';
+  memory.kalusStaffEditorState = { overrides: {}, added: [], autoPublish: { enabled: false } };
+  memory['kalusStaffEditorState:9000'] = memory.kalusStaffEditorState;
+  await autoSaveCodeToForum({ force: true });
+  assert.equal(memory.kalusStaffEditorState.autoPublish.lastStatus, 'no_edit_button');
+  assert.equal(memory.prideKeeperStaffPublishJob, undefined);
+});
+
+test('pending publication for another thread or origin never clicks Save', async () => {
+  for (const returnUrl of ['https://forum.pridekeeper.tech/threads/9001/', 'https://other.example/threads/9000/']) {
+    const { completePendingPublishOnEditPage, memory, forms, FakeForm, FakeTextArea, FakeElement } = loadLogic();
+    const save = new FakeElement({ text: 'Сохранить' });
+    forms.push(new FakeForm({ action: '/posts/4425/edit', editor: new FakeTextArea(), save }));
+    memory['prideKeeperStaffPublishJob:4425'] = { postId: '4425', threadId: '9000', returnUrl, code: '[PARSEHTML]test[/PARSEHTML]', createdAt: Date.now() };
+    assert.equal(await completePendingPublishOnEditPage(), false); assert.equal(save.clicked, 0);
+  }
+});
+
+test('publish accepts only the first visible post edit href in the recognized composition thread', () => {
   const { findFirstPostEdit } = loadLogic();
-  const context = { threadId: '1623', postIds: ['4425', '4426'], actions: [
+  const context = { threadId: '9000', isStaffThread: true, postIds: ['4425', '4426'], actions: [
     { type: 'edit', postId: '4426', href: '/posts/4426/edit' },
     { type: 'edit', postId: '4425', href: '/posts/4425/edit' }
   ] };
 
   assert.equal(findFirstPostEdit(context).href, '/posts/4425/edit');
-  assert.equal(findFirstPostEdit({ ...context, threadId: '77' }), null);
+  assert.equal(findFirstPostEdit({ ...context, isStaffThread: false }), null);
   assert.equal(findFirstPostEdit({ ...context, actions: [{ type: 'edit', postId: '4425', href: 'https://evil.example/posts/4425/edit' }] }), null);
 });
 
@@ -374,6 +394,25 @@ test('pending publish switches XenForo to BBCode mode before replacing the post'
   assert.equal(sourceToggle.clicked, 1);
   assert.equal(editor.value, '[PARSEHTML]\n<div>updated</div>\n[/PARSEHTML]');
   assert.equal(save.clicked, 1);
+});
+
+test('publication refuses code whose staff snapshot changed before Save', async () => {
+  const { completePendingPublishOnEditPage, memory, forms, FakeForm, FakeTextArea, FakeElement } = loadLogic();
+  const save = new FakeElement({ text: 'Сохранить' });
+  forms.push(new FakeForm({ action: '/posts/4425/edit', editor: new FakeTextArea(), save }));
+  memory.kalusStaffEditorState = { overrides: {}, added: [{ id: 'newer', name: 'Newer' }], ui: {}, autoPublish: { enabled: true } };
+  memory.prideKeeperStaffPublishJob = { postId: '4425', code: '[PARSEHTML]old[/PARSEHTML]', createdAt: Date.now(), contentSignature: JSON.stringify({ overrides: {}, added: [] }) };
+  assert.equal(await completePendingPublishOnEditPage(), false);
+  assert.equal(save.clicked, 0);
+});
+
+test('publication refuses an obsolete job owner without deleting the current job', async () => {
+  const { completePendingPublishOnEditPage, memory, locationMock } = loadLogic();
+  locationMock.hash = '#pkfa-staff-publish=old-owner';
+  const job = { token: 'new-owner', postId: '4425', code: '[PARSEHTML]latest[/PARSEHTML]', createdAt: Date.now() };
+  memory['prideKeeperStaffPublishJob:4425'] = job;
+  assert.equal(await completePendingPublishOnEditPage(), false);
+  assert.equal(memory['prideKeeperStaffPublishJob:4425'], job);
 });
 
 test('auto-save fails closed before generating code when first-post edit is missing', async () => {

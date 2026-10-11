@@ -7,8 +7,8 @@
   'use strict';
   const OPEN_EVENT = 'PKFA_OPEN_STAFF';
   function shouldRunStaff(pathname = '', hash = '') {
-    const staffThread = /\/threads\/(?:[^/?#]+\.)?(?:1623|1646)(?:\/|$)/i.test(pathname);
-    const markedPublish = /\/posts\/\d+\/edit\/?$/i.test(pathname) && hash === '#pkfa-staff-publish';
+    const staffThread = /\/threads\/(?:[^/?#]+\.)?\d+(?:\/|$)/i.test(pathname);
+    const markedPublish = /\/posts\/\d+\/edit\/?$/i.test(pathname) && /^#pkfa-staff-publish(?:=[\w-]+)?$/.test(hash);
     return staffThread || markedPublish;
   }
   function shouldShowLegacyLauncher(hasUnifiedShell = false) {
@@ -20,10 +20,10 @@
     return true;
   }
   function canPublish(context = {}) {
-    if (!['1623', '1646'].includes(String(context.threadId || ''))) return false;
+    if (!context.threadId || !context.isStaffThread) return false;
     if (context.isFirstThreadPage === false) return false;
     const firstPostId = String(context.postIds?.[0] || '');
-    if (!firstPostId) return false;
+    if (!firstPostId || (context.staffPostId && String(context.staffPostId) !== firstPostId)) return false;
     return (context.actions || []).some((item) => item.type === 'edit'
       && String(item.postId || '') === firstPostId
       && new RegExp(`/posts/${firstPostId}/edit(?:$|[/?#])`, 'i').test(item.href || ''));

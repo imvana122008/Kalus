@@ -9,8 +9,31 @@ const card = '<div class="card"><div class="avatar-container"><img class="avatar
 const fixture = `<article class="message" id="js-post-4561"><div class="bbWrapper">${sections.map(id => `<section id="${id}"><h2>${id}</h2><div class="cards">${id === 'management' ? card : ''}</div></section>`).join('')}<section id="developers"><h2>Разработчики</h2>${card}</section></div><a href="/posts/4561/edit">Изменить</a></article><form action="/threads/1646/add-reply"><textarea name="message">DO NOT TOUCH</textarea><button type="submit">Ответить</button></form>`;
 const flush = () => new Promise(resolve => setTimeout(resolve, 15));
 
-async function setup(html = fixture, saved = {}) {
-  const dom = new JSDOM(html, { url: 'https://forum.pridekeeper.tech/threads/1646/', runScripts: 'outside-only' });
+test('discard drops local edits without overwriting another tab saved member', async () => {
+  const env = await setup();
+  try {
+    await env.w.__staffTest.setState(await env.w.__staffTest.getState());
+    await env.w.PKFA.store.update(full => { full.staff.added.push({ id: 'external', name: 'External', forumId: '99', section: 'main-mod' }); full.staffByThread['1646'] = structuredClone(full.staff); });
+    await env.w.PKFA.staff.discardChanges();
+    assert.ok((await env.w.__staffTest.getState()).added.some(item => item.id === 'external'));
+  } finally { env.dom.window.close(); }
+});
+
+test('changed profile frees its previous identity for a new generated card', async () => {
+  const env = await setup();
+  try {
+    const state = await env.w.__staffTest.getState();
+    const original = env.w.__staffTest.scanRoot(env.w.document).items[0];
+    state.overrides[original.key] = { forumId: '88', forum: 'https://forum.pridekeeper.tech/members/88/', name: 'Changed' };
+    state.added.push({ id: 'returned', forumId: '2', forum: 'https://forum.pridekeeper.tech/members/2/', name: 'Returned', section: 'main-mod' });
+    const generated = await env.w.__staffTest.generateCode(state, '4561');
+    assert.match(generated.code, /Returned/);
+    assert.match(generated.code, /Changed/);
+  } finally { env.dom.window.close(); }
+});
+
+async function setup(html = fixture, saved = {}, url = 'https://forum.pridekeeper.tech/threads/1646/') {
+  const dom = new JSDOM(html, { url, runScripts: 'outside-only' });
   const w = dom.window;
   const memory = structuredClone(saved);
   w.CSS = { escape: v => v };
@@ -23,7 +46,7 @@ async function setup(html = fixture, saved = {}) {
   for (const file of ['store.js', 'context.js', 'staff-gate.js']) w.eval(fs.readFileSync(path.join(root, 'src', file), 'utf8'));
   await w.PKFA.store.update(state => { state.staff.autoPublish.enabled = false; });
   let source = fs.readFileSync(path.join(root, 'src/staff.js'), 'utf8');
-  source = source.replace('  applyLauncherSettings();\n})();', '  window.__staffTest = { generateCode, refreshData, scanRoot, mergeSnapshot, updateAutoPublishStatus };\n  applyLauncherSettings();\n})();');
+  source = source.replace('  applyLauncherSettings();\n})();', '  window.__staffTest = { generateCode, refreshData, scanRoot, mergeSnapshot, updateAutoPublishStatus, getState, setState };\n  applyLauncherSettings();\n})();');
   w.eval(source);
   const host = w.document.querySelector('#kalus-staff-builder-host');
   const shadow = host.shadowRoot;
@@ -34,10 +57,115 @@ async function setup(html = fixture, saved = {}) {
   return { dom, w, memory, shadow };
 }
 
+test('save and close closes the real Helper after committing the member', async () => {
+  const env = await setup(); const { w } = env;
+  try {
+    w.PKFA.asset = name => name;
+    for (const file of ['history.js', 'complaints.js', 'preferences.js', 'replies.js', 'productivity.js', 'panel.js']) w.eval(fs.readFileSync(path.join(root, 'src', file), 'utf8'));
+    await w.PKFA.panel.mount(w.document, { context: w.PKFA.context.inspectDocument(w.document, w.location), state: await w.PKFA.store.getState(), actionExecutor: {}, replyController: {} });
+    const host = w.document.querySelector('#pkfa-root');
+    host.querySelector('[data-helper-toggle]').click(); await flush();
+    host.querySelector('.pkfa-side [data-route="staff"]').click(); await flush();
+    env.shadow.querySelector('[data-do="edit"]').click();
+    const name = env.shadow.querySelector('[data-f="name"]'); name.value = 'Committed'; name.dispatchEvent(new w.Event('input', { bubbles: true }));
+    env.shadow.querySelector('[data-save-close]').click(); await flush(); await flush();
+    assert.equal(host.querySelector('[data-helper-overlay]').getAttribute('aria-hidden'), 'true');
+    assert.match((await w.__staffTest.generateCode(await w.__staffTest.getState(), '4561')).code, /Committed/);
+  } finally { env.dom.window.close(); }
+});
+
 test('staff list renders without throwing and has a working code button', async () => {
   const { dom, shadow } = await setup();
   try { assert.equal(shadow.querySelectorAll('.k-section').length, 5); shadow.querySelector('[data-go-code]').click(); await flush(); assert.match(shadow.querySelector('[data-code]').value, /PARSEHTML/); }
   finally { dom.window.close(); }
+});
+
+test('exact main and deputy roles survive editing and PARSEHTML generation', async () => {
+  const main = card.replace('Original', 'Shakes_Suicide').replace('Модератор', 'Главный модератор');
+  const deputy = card.replace('Original', 'Issa_Defender').replace('Модератор', 'Заместитель главного модератора').replace('/members/2/', '/members/3/');
+  const env = await setup(fixture.replace(card, '').replace('<section id="main-mod"><h2>main-mod</h2><div class="cards"></div>', `<section id="main-mod"><h2>main-mod</h2><div class="cards">${main}${deputy}</div>`));
+  try {
+    for (const [name, role] of [['Shakes_Suicide', 'Главный модератор'], ['Issa_Defender', 'Заместитель главного модератора']]) {
+      const row = [...env.shadow.querySelectorAll('.k-person')].find(row => row.querySelector('.k-name').textContent === name);
+      row.querySelector('[data-do="edit"]').click();
+      assert.equal(env.shadow.querySelector('[data-f="role"]').value, role);
+      env.shadow.querySelector('[data-save]').click(); await flush();
+    }
+    const generated = await env.w.__staffTest.generateCode(await env.w.__staffTest.getState(), '4561');
+    const parsed = new JSDOM(generated.code).window.document;
+    assert.equal(parsed.querySelectorAll('#main-mod .card strong')[0].textContent, 'Главный модератор');
+    assert.equal(parsed.querySelectorAll('#main-mod .card strong')[1].textContent, 'Заместитель главного модератора');
+  } finally { env.dom.window.close(); }
+});
+
+test('composition structure enables a new thread and isolates drafts, metadata and reload', async () => {
+  const a = await setup(fixture, {}, 'https://forum.pridekeeper.tech/threads/new.9000/');
+  let b;
+  try {
+    assert.equal(a.w.PKFA.context.inspectDocument(a.w.document, a.w.location).isStaffThread, true);
+    const draft = await a.w.__staffTest.getState();
+    draft.added.push({ id: 'one', section: 'main-mod', name: 'Thread_A', forumId: '42', role: 'Главный модератор' });
+    draft.autoPublish.enabled = false; await a.w.__staffTest.setState(draft);
+    await a.w.__staffTest.updateAutoPublishStatus('editing', { targetPostId: '4561' });
+    b = await setup(fixture.replaceAll('4561', '7777'), a.memory, 'https://forum.pridekeeper.tech/threads/9001/');
+    assert.equal((await b.w.__staffTest.getState()).added.length, 0);
+    assert.equal((await b.w.__staffTest.getState()).autoPublish.targetPostId, '');
+    const other = await b.w.__staffTest.getState(); other.autoPublish.enabled = false;
+    other.added.push({ id: 'two', section: 'junior-mod', name: 'Thread_B', forumId: '43' }); await b.w.__staffTest.setState(other);
+    const reload = await setup(fixture, b.memory, 'https://forum.pridekeeper.tech/threads/9000/');
+    try { assert.equal((await reload.w.__staffTest.getState()).added[0].name, 'Thread_A'); } finally { reload.dom.window.close(); }
+    const code = await b.w.__staffTest.generateCode(await b.w.__staffTest.getState(), '7777');
+    assert.ok(code.code.includes('Thread_B')); assert.ok(!code.code.includes('Thread_A'));
+  } finally { a.dom.window.close(); b?.dom.window.close(); }
+});
+
+test('unified composition workspace has no nested dialog or fixed inner window', async () => {
+  const env = await setup();
+  try {
+    const container = env.w.document.createElement('div'); env.w.document.body.appendChild(container);
+    env.w.PKFA.staff.mountWorkspace(container, { context: env.w.PKFA.context.inspectDocument(env.w.document, env.w.location), store: env.w.PKFA.store }); await flush();
+    assert.equal(env.shadow.querySelectorAll('[role="dialog"], [aria-modal="true"]').length, 0);
+    assert.equal(env.shadow.querySelector('[data-staff-navigation]').querySelectorAll('button').length, 4);
+    assert.equal(env.shadow.querySelectorAll('.k-section').length, 5);
+  } finally { env.dom.window.close(); }
+});
+
+test('avatar preview does not access a removed form after immediate save', async () => {
+  const env = await setup(); const errors = [];
+  env.w.addEventListener('error', event => { errors.push(event.message); event.preventDefault(); });
+  try {
+    env.shadow.querySelector('[data-add-sec="main-mod"]').click();
+    env.shadow.querySelector('[data-f="name"]').value = 'Fast_Save';
+    const profile = env.shadow.querySelector('[data-f="forum"]'); profile.value = '/members/2501/';
+    profile.dispatchEvent(new env.w.Event('input', { bubbles: true }));
+    env.shadow.querySelector('[data-save]').click();
+    await new Promise(resolve => setTimeout(resolve, 400));
+    assert.deepEqual(errors, []);
+  } finally { env.dom.window.close(); }
+});
+
+test('leaving async settings immediately cannot replace the newer screen', async () => {
+  const env = await setup();
+  try {
+    env.shadow.querySelector('[data-act="back"]').click();
+    env.shadow.querySelector('[data-go="settings"]').click();
+    env.shadow.querySelector('[data-act="back"]').click();
+    await flush();
+    assert.equal(env.shadow.querySelectorAll('[data-go]').length, 4);
+    assert.equal(env.shadow.querySelector('[data-save-settings]'), null);
+  } finally { env.dom.window.close(); }
+});
+
+test('composition icons in a reply or generic icons do not enable first-post editing', () => {
+  const context = require('../src/context.js');
+  const gate = require('../src/staff-gate.js');
+  for (const html of [`<article class="message" id="js-post-1"><div class="bbWrapper"><svg></svg><p>Обычная тема</p></div></article>${fixture}`, '<article class="message" id="js-post-1"><div class="bbWrapper"><svg></svg></div><a href="/posts/1/edit">Изменить</a></article>']) {
+    const dom = new JSDOM(html);
+    try {
+      const found = context.inspectDocument(dom.window.document, { pathname: '/threads/9000/' });
+      assert.equal(found.isStaffThread, false); assert.equal(gate.canPublish(found), false);
+    } finally { dom.window.close(); }
+  }
 });
 
 for (const section of sections) test(`DOM ${section}: add/save/display/HTML/reload/move/delete`, async () => {
@@ -177,7 +305,7 @@ test('Helper button flows: navigation, templates, tags, replacements, rules, his
   try {
     Object.defineProperty(w.navigator, 'clipboard', { value: { writeText: async text => copied.push(text) } });
     w.confirm = () => true;
-    w.PKFA.version = '5.0.1';
+    w.PKFA.version = '5.0.2';
     w.PKFA.asset = name => `assets/${name}`;
     for (const file of ['history.js', 'complaints.js', 'preferences.js', 'replies.js', 'productivity.js', 'panel.js']) w.eval(fs.readFileSync(path.join(root, 'src', file), 'utf8'));
     await w.PKFA.store.update(state => {

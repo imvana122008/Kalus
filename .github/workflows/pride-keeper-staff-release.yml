@@ -25,12 +25,21 @@ jobs:
           node-version: '24'
       - name: Validate modules and run tests
         run: |
-          find pride-keeper-staff/extension -name '*.js' -print0 | xargs -0 -n1 node --check
+          find pride-keeper-staff/extension \( -name '*.js' -o -name '*.cjs' \) -print0 | xargs -0 -n1 node --check
           node --test pride-keeper-staff/extension/tests/*.test.js
       - name: Install DOM regression test runtime
-        run: npm install --prefix .qa jsdom@30.1.2 --no-audit --no-fund
+        run: npm install --prefix .qa jsdom@30.1.2 playwright@1.62.1 --no-audit --no-fund
       - name: Validate staff UI and PARSEHTML lifecycle
         run: NODE_PATH="$PWD/.qa/node_modules" node --test pride-keeper-staff/extension/tests/staff-dom.cjs
+      - name: Install isolated browser test runtime
+        run: node .qa/node_modules/playwright/cli.js install --with-deps chromium
+      - name: Validate offline forum UI, layout and existing-post saves
+        run: NODE_PATH="$PWD/.qa/node_modules" PKFA_QA_OUTPUT="$PWD/outputs/forum-ui" node pride-keeper-staff/extension/tests/forum-ui.cjs
+      - name: Save offline forum QA screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: pride-keeper-forum-ui-qa
+          path: outputs/forum-ui/
       - name: Validate manifest resources and update version
         id: version
         run: |
@@ -64,9 +73,9 @@ jobs:
           git tag -f latest "$GITHUB_SHA"
           git push origin refs/tags/latest --force
           if gh release view latest >/dev/null 2>&1; then
-            gh release edit latest --title "PRIDE KEEPER Helper v${VERSION}" --notes "Модульная сборка PRIDE KEEPER Helper v${VERSION}. Синтаксис, ресурсы manifest и автотесты проверены." --latest
+            gh release edit latest --title "PRIDE KEEPER Helper v${VERSION}" --notes "Состав текущей темы, единая панель без вложенного окна, точные должности и Inter. Модульные, DOM и браузерные тесты на локальном стенде форума пройдены до сборки. Отчёт: https://github.com/imvana122008/Kalus/blob/main/pride-keeper-staff/QA-v${VERSION}.md" --latest
             gh release upload latest dist/*.zip --clobber
           else
-            gh release create latest dist/*.zip --title "PRIDE KEEPER Helper v${VERSION}" --notes "Модульная сборка PRIDE KEEPER Helper v${VERSION}. Синтаксис, ресурсы manifest и автотесты проверены." --latest
+            gh release create latest dist/*.zip --title "PRIDE KEEPER Helper v${VERSION}" --notes "Состав текущей темы, единая панель без вложенного окна, точные должности и Inter. Модульные, DOM и браузерные тесты на локальном стенде форума пройдены до сборки. Отчёт: https://github.com/imvana122008/Kalus/blob/main/pride-keeper-staff/QA-v${VERSION}.md" --latest
           fi
 
