@@ -85,6 +85,7 @@
           if (pending) { pending.disabled = true; pending.setAttribute('aria-busy', 'true'); }
         }
       }
+      root.PKFA?.replies?.bindAutoReplace?.(form, () => existing.__pkfaController?.state || state);
       return { mounted: false, updated: true, reason: 'exists', root: existing, model };
     }
     const element = doc.createElement('section');
@@ -94,6 +95,7 @@
     element.innerHTML = render(model);
     const controller = { model, state, executor, replies, history, context, busy: new Set() };
     element.__pkfaController = controller;
+    root.PKFA?.replies?.bindAutoReplace?.(form, () => controller.state);
     const notice = (message, tone = 'info') => {
       const target = element.querySelector?.('[data-pkfa-notice]');
       if (!target) return;

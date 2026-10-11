@@ -1,6 +1,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+test('home contains useful shortcuts without profile photo clock or date', () => {
+  const markup = panel.homeViewTemplate({ recentThreads:[], complaintTotal:0 }, { kind:'staff',profile:{name:'PRIVATE',avatar:'PRIVATE'} });
+  assert.ok(markup.includes('data-route="staff"'));
+  for (const value of ['pkfa-profile-card','pkfa-clock','PRIVATE','<img']) assert.equal(markup.includes(value),false);
+});
+
 let panel = {};
 try { panel = require('../src/panel.js'); } catch (_) {}
 

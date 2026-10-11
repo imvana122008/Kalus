@@ -5,6 +5,21 @@ let replies = {};
 try { require('../src/productivity.js'); } catch (_) {}
 try { replies = require('../src/replies.js'); } catch (_) {}
 
+test('quick send and insertion expand shortcuts before variables without a second replacement pass', async () => {
+  const values=[];
+  const controller=new replies.ReplyController({setText:async text=>values.push(text),submit:async()=>{},onHistory:async()=>{}});
+  const options={applyReplacements:true,rules:[{from:'/hello',to:'Здравствуйте, {author}'}]};
+  await controller.insertTemplate({text:'/hello'}, {author:'Player'}, options);
+  await controller.sendTemplate({text:'/hello'}, {author:'Player'}, options);
+  assert.deepEqual(values,['Здравствуйте, Player','Здравствуйте, Player']);
+  const blocked=await controller.sendTemplate({text:'/hello'}, {}, options);
+  assert.equal(blocked.status,'unknown-variables');assert.equal(values.length,2);
+});
+
+test('template variables support Russian tag names and names with spaces', () => {
+  assert.equal(replies.renderTemplate('{Привет всем}',{'Привет всем':'Здравствуйте'}).text,'Здравствуйте');
+});
+
 test('renders known variables and reports unknown placeholders', () => {
   const output = replies.renderTemplate?.('Здравствуйте, {author}. {unknown}', { author: 'Player' });
   assert.equal(output?.text, 'Здравствуйте, Player. {unknown}');

@@ -62,3 +62,12 @@
 .pkfa-overlay:not(.is-open){visibility:hidden}
 @media (max-width:559px){.pkfa-helper{display:block}.pkfa-side{width:58px}.pkfa-main{height:100%;margin-left:58px}}
 @media (min-width:769px) and (max-width:1180px){.pkfa-helper:not(.is-collapsed) .pkfa-side{width:auto}}
+
+/* Built-in icons remain crisp without platform symbol fonts. */
+#pkfa-root .pkfa-icon{width:20px;height:20px;display:block;flex:none;pointer-events:none}
+#pkfa-root .pkfa-side__item i,#pkfa-root .pkfa-quick-grid i,#pkfa-root .pkfa-page-head>i{display:grid;place-items:center}
+#pkfa-root .pkfa-home-recents{display:flex;gap:12px;flex-wrap:wrap;margin-top:14px}
+#pkfa-root .pkfa-rule-source{display:inline-block;margin-top:8px;color:#b6a5ff;font-size:12px}
+#pkfa-root .pkfa-answer-card p{white-space:pre-wrap}
+
+#pkfa-root [hidden]{display:none!important}

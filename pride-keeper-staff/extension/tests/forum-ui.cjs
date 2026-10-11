@@ -12,10 +12,10 @@ const capturedCard = fs.readFileSync(path.join(__dirname, 'fixtures/forum-card-1
 const sections = [['management', 'Руководство'], ['main-mod', 'Главная модерация'], ['curator', 'Кураторы модерации'], ['senior-mod', 'Старшие модераторы'], ['junior-mod', 'Модераторы']];
 const fixtureCard = (name, id, role) => capturedCard.replaceAll('Skay_Esquea', name).replaceAll('/members/2/', `/members/${id}/`).replaceAll('/0/2.jpg', `/0/${id}.jpg`).replace('Гл. модератор', role).replace('userBanner--osnov', role === 'Разработчик' ? 'position' : 'userBanner--gm1');
 const developer = '<section id="developers"><h2>Разработчики</h2><div class="cards">' + fixtureCard('Developer_Protected', '9', 'Разработчик') + '</div></section>';
-const initial = '<div class="bbWrapper">' + sections.map(([id, title]) => `<section id="${id}"><h2>${title}</h2><div class="cards">${id === 'main-mod' ? fixtureCard('Shakes_Suicide', '2', 'Главный модератор') + fixtureCard('Issa_Defender', '3', 'Главный модератор') : ''}</div></section>`).join('') + developer + '</div>';
+const initial = '<div class="bbWrapper">' + sections.map(([id, title]) => `<section id="${id}"><h2>${title}</h2><div class="cards">${id === 'main-mod' ? fixtureCard('Shakes_Suicide', '2', 'Главный модератор') + fixtureCard('Issa_Defender', '3', 'Главный модератор') : id === 'junior-mod' ? fixtureCard('Duplicate_Test','116','Модератор').repeat(3) : ''}</div></section>`).join('') + developer + '</div>';
 const posts = { '9000': initial, '9001': initial };
 const postIds = { '9000': '4561', '9001': '7777' };
-let storage = {}, savedPosts = 0, replies = 0;
+let storage = {}, savedPosts = 0, replies = 0, simulatedReplies = 0;
 const scripts = manifest.content_scripts[0].js.map(file => `<script src="/extension/${file}"></script>`).join('');
 const mock = `<script>window.chrome={runtime:{id:'offline-test',getURL:name=>'/extension/'+name,onMessage:{addListener(){}}},storage:{local:{get:async keys=>fetch('/storage').then(r=>r.json()).then(raw=>Object.fromEntries(keys.filter(k=>k in raw).map(k=>[k,raw[k]]))),set:async values=>fetch('/storage',{method:'POST',body:JSON.stringify(values)}),remove:async keys=>fetch('/storage',{method:'DELETE',body:JSON.stringify(keys)})}}};</script>`;
 const page = body => `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Стенд форума Pride Keeper</title><style>body{margin:0;background:#15191f;color:#e7ebf0;font:14px Segoe UI,Arial}header{padding:20px;background:#202630}main{max-width:1100px;margin:24px auto;padding:20px}section{margin:16px 0}.cards{display:flex;gap:12px;flex-wrap:wrap}.card{background:#232b36;border-radius:12px;padding:16px;text-align:center;width:160px}.avatar{width:64px;height:64px;border-radius:50%}.name{margin:8px}.links{display:flex;justify-content:center;gap:12px;margin-top:12px}.userBanner--osnov{font-size:12px}textarea{width:90%;height:180px}button{cursor:pointer}a{color:#a991ff}</style><link rel="stylesheet" href="/extension/src/panel.css"></head><body>${body}${mock}${scripts}</body></html>`;
@@ -34,6 +34,10 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', type); res.end(fs.readFileSync(file)); return;
   }
   if (pathname.startsWith('/data/avatars/')) { res.setHeader('Content-Type', 'image/svg+xml'); res.end('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" rx="50" fill="#7361ae"/><text x="50" y="63" text-anchor="middle" fill="white" font-size="35">PK</text></svg>'); return; }
+  if (pathname === '/forums/rules/') { res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<div class="structItem-title"><a href="/threads/3/">Правила форума</a></div>');return; }
+  if (pathname === '/threads/3/') { res.setHeader('Content-Type','text/html; charset=utf-8');res.end('<article class="message">'+fs.readFileSync(path.join(__dirname,'fixtures/forum-rules-3.html'),'utf8')+'</article>');return; }
+  if (pathname === '/threads/9002/add-reply') { simulatedReplies++;res.end('ok');return; }
+  if (pathname === '/threads/9002/') { res.setHeader('Content-Type','text/html; charset=utf-8');res.end(page('<main><div class="p-breadcrumbs"><a href="/forums/109/">Жалобы</a></div><h1>Тестовая жалоба</h1><article class="message"><div class="message-name"><a class="username">Test_Author</a></div><div class="bbWrapper">Тестовая жалоба без настоящих людей</div></article><form action="/threads/9002/add-reply" method="post" onsubmit="event.preventDefault();fetch(this.action,{method:&#39;POST&#39;,body:new URLSearchParams(new FormData(this))}).then(()=>this.setAttribute(&#39;data-sent&#39;,&#39;true&#39;))"><textarea name="message"></textarea><button type="submit">Ответить</button></form></main>'));return; }
   const thread = pathname.match(/^\/threads\/(900[01])\/$/)?.[1];
   if (thread) {
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
@@ -51,7 +55,7 @@ const server = http.createServer(async (req, res) => {
   res.writeHead(404); res.end();
 });
 
-(async () => {
+if (process.env.PKFA_MANUAL_QA) { server.listen(8765,'127.0.0.1',()=>console.log('Manual Edge fixture http://127.0.0.1:8765/threads/9000/')); } else (async () => {
   const output = path.resolve(process.env.PKFA_QA_OUTPUT || path.join(__dirname, '../../../../../../../outputs/forum-ui'));
   fs.mkdirSync(output, { recursive: true });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -63,6 +67,7 @@ const server = http.createServer(async (req, res) => {
   const p = await context.newPage(); const errors = []; p.on('pageerror', error => errors.push(error.message));
   const open = async id => { await p.goto(`${origin}/threads/${id}/`); await p.locator('[data-helper-toggle]').click(); await p.locator('.pkfa-side [data-route="staff"]').click(); await p.locator('[data-staff-navigation]').waitFor(); };
   try {
+    if (process.env.PKFA_HELPER_ONLY) { console.log(JSON.stringify(await require('./helper-flows.cjs')(p,origin,output))); return; }
     await open('9000');
     const usableWidth = await p.locator('#kalus-staff-builder-host').evaluate(host => host.getBoundingClientRect().width / host.closest('.pkfa-main').getBoundingClientRect().width);
     assert.ok(usableWidth > 0.9, `Composition uses only ${Math.round(usableWidth * 100)}% of the panel`);
@@ -108,6 +113,19 @@ const server = http.createServer(async (req, res) => {
     await row('Added_Member').locator('[data-do="remove"]').click();
     await p.waitForFunction(() => location.pathname === '/threads/9000/' && !document.querySelector('#main-mod .cards a[href$="/members/2501/"]'));
     assert.equal(savedPosts, 3); assert.equal(replies, 0); assert.ok(posts['9000'].includes(developer));
+    await open('9000');
+    assert.equal(await row('Duplicate_Test').count(),3);
+    await row('Duplicate_Test').nth(1).locator('[data-do="remove"]').click();
+    await p.waitForFunction(()=>location.pathname==='/threads/9000/' && [...document.querySelectorAll('#junior-mod .card .name')].filter(x=>x.textContent==='Duplicate_Test').length===2);
+    await open('9000');assert.equal(await row('Duplicate_Test').count(),2);
+    await row('Duplicate_Test').first().locator('[data-do="edit"]').click();
+    await p.locator('[data-f="vk"]').fill('https://vk.com/duplicate_survivor');
+    await p.locator('[data-save]').click();
+    await p.waitForFunction(()=>location.pathname==='/threads/9000/' && !!document.querySelector('#junior-mod a[href="https://vk.com/duplicate_survivor"]'));
+    assert.equal(await p.locator('#junior-mod .card').count(),2);
+    await open('9000');assert.equal(await row('Duplicate_Test').count(),2);
+    assert.equal(savedPosts,5);assert.ok(posts['9000'].includes(developer));
+
     for (const [index, [section]] of sections.entries()) {
       await open('9000');
       await p.locator(`[data-add-sec="${section}"]`).first().click();
@@ -128,7 +146,7 @@ const server = http.createServer(async (req, res) => {
       await p.waitForFunction(name => location.pathname === '/threads/9000/' && !document.querySelector('article.message')?.textContent.includes(name), `Section_Member_${index}`);
       assert.ok(posts['9000'].includes(developer));
     }
-    assert.equal(savedPosts, 18); assert.equal(replies, 0);
+    assert.equal(savedPosts, 20); assert.equal(replies, 0);
     const second = await context.newPage(); await second.goto(`${origin}/threads/9001/`);
     await Promise.all([p, second].map((tab, tabIndex) => tab.evaluate(async tabIndex => {
       for (let index = 0; index < 5; index++) await PKFA.store.update(state => { state.tags.push({ id: `parallel-${tabIndex}-${index}`, text: 'parallel' }); });
@@ -147,7 +165,7 @@ const server = http.createServer(async (req, res) => {
     await p.locator('[data-code]').filter({ visible: true }).waitFor();
     await p.locator('[data-publish]').click();
     await p.waitForFunction(() => location.pathname === '/threads/9000/' && !!document.querySelector('#main-mod .card a[href="https://vk.com/deputy_test"]'));
-    assert.equal(savedPosts, 19); assert.equal(replies, 0); assert.ok(posts['9000'].includes(developer));
+    assert.equal(savedPosts, 21); assert.equal(replies, 0); assert.ok(posts['9000'].includes(developer));
     await open('9000');
     const sameThread = await context.newPage(); sameThread.on('pageerror', error => errors.push(error.message));
     await sameThread.goto(`${origin}/threads/9000/`); await sameThread.locator('[data-helper-toggle]').click(); await sameThread.locator('.pkfa-side [data-route="staff"]').click();
@@ -161,8 +179,10 @@ const server = http.createServer(async (req, res) => {
     await p.waitForFunction(async () => (await PKFA.store.getState()).staffByThread['9000'].added.filter(item => item.name.startsWith('Parallel_Member_')).length === 2);
     await open('9000'); await row('Parallel_Member_').nth(1).waitFor(); assert.equal(await row('Parallel_Member_').count(), 2);
     await sameThread.close();
+    const helperReport = await require('./helper-flows.cjs')(p,origin,output);
+    assert.equal(simulatedReplies,1);
     assert.equal(errors.length, 0, errors.join('\n'));
-    const report = { passed: true, savedExistingPosts: savedPosts, newReplies: replies, allFiveSections: true, allFiveMoves: true, delayedHtmlToBbcode: true, threadIsolation: true, concurrentTabs: true, concurrentStaffAdditions: true, manualPublicationWithAutoOff: true, roles: true, profileAndVkLinks: true, developerPreserved: true, viewportWidths: [1440, 768, 360], pageErrors: errors, source: 'captured forum card + synthetic offline page; no live publication' };
+    const report = { ...helperReport, passed: true, savedExistingPosts: savedPosts, newReplies: replies, allFiveSections: true, allFiveMoves: true, duplicateDeleteAndEdit: true, delayedHtmlToBbcode: true, threadIsolation: true, concurrentTabs: true, concurrentStaffAdditions: true, manualPublicationWithAutoOff: true, roles: true, profileAndVkLinks: true, developerPreserved: true, viewportWidths: [1440, 768, 360], pageErrors: errors, source: 'captured forum card + synthetic offline page; no live publication' };
     fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));
   } catch (error) {
     console.log(JSON.stringify({ url: p.url(), savedPosts, replies, errors, staff: storage.pkfaStateV5?.staffByThread, jobs: Object.keys(storage).filter(key => key.startsWith('prideKeeperStaffPublishJob')), postNames: posts['9000'].match(/class="[^\"]*name"[^>]*>([^<]+)/g) }));

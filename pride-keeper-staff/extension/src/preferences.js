@@ -14,7 +14,7 @@
   const TEMPLATE_FIELDS = ['id', 'category', 'title', 'color', 'text', 'custom', 'favorite'];
   const TAG_FIELDS = ['id', 'title', 'text', 'color', 'group'];
   const REPLACEMENT_FIELDS = ['id', 'from', 'to', 'enabled'];
-  const RULE_FIELDS = ['id', 'title', 'text', 'url', 'category', 'favorite'];
+  const RULE_FIELDS = ['id', 'title', 'text', 'url', 'category', 'favorite', 'source', 'updatedAt'];
   const SECRET = /(csrf|token|cookie|password|authorization|secret|__proto__|prototype|constructor)/i;
 
   function isPlainObject(value) {

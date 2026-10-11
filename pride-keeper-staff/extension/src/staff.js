@@ -6,7 +6,7 @@
   const initialContext = window.PKFA?.context?.inspectDocument?.(document, location);
   if (/\/threads\//i.test(location.pathname) && initialContext && !initialContext.isStaffThread) return;
   if (window.__PRIDE_KEEPER_STAFF__) return;
-  window.__PRIDE_KEEPER_STAFF__ = "5.0.4";
+  window.__PRIDE_KEEPER_STAFF__ = "5.0.5";
 
   // ============================================================
   // PRIDE KEEPER STAFF — ОСНОВНЫЕ НАСТРОЙКИ
@@ -14,7 +14,7 @@
   // Если ты кидаешь мне правки в чат, я дальше меняю именно этот файл.
   // ============================================================
   const CONFIG = {
-    version: "5.0.4",
+    version: "5.0.5",
 
     storageKey: "kalusStaffEditorState",
     codeCacheKey: "prideKeeperStaffGeneratedCode",
@@ -239,7 +239,7 @@
     }) || links.find((a) => /vk\.(com|ru)/i.test(a.getAttribute("href") || "")) || null;
   }
 
-  function getCardKey(card, sectionId) {
+  function getCardIdentityKey(card, sectionId) {
     const forum = getForumLink(card);
     const href = forum?.getAttribute("href") || "";
 
@@ -252,6 +252,18 @@
 
     const name = card.querySelector(".name")?.textContent?.trim() || "unknown";
     return `fallback:${sectionId}:${name}`;
+  }
+
+  function getCardKey(card, sectionId) {
+    const saved = card.getAttribute('data-staff-card-key');
+    if (saved) return saved;
+    const identity = getCardIdentityKey(card, sectionId);
+    const root = card.getRootNode();
+    const peers = ALLOWED_SECTIONS.flatMap(id =>
+      [...(root.querySelector(`#${CSS.escape(id)}`)?.querySelectorAll('.cards > .card') || [])]
+        .filter(candidate => getCardIdentityKey(candidate, id) === identity));
+    if (peers.length < 2) return identity;
+    return `${identity}:card:${sectionId}:${peers.indexOf(card)}`;
   }
 
   // Forum badges paint their title in a background image. The nested strong
@@ -335,6 +347,12 @@
     return name ? `name:${section}:${name}` : "";
   }
 
+  function recordDraftAction(action) {
+    const pending = window.PKFA?.history?.add?.({ action, threadId:threadScope,
+      title:document.querySelector('h1')?.textContent?.trim() || 'Состав', status:'draft-saved', ok:true });
+    pending?.catch?.(() => {});
+  }
+
   function hiddenOverrideIdentities(overrides = {}) {
     const identities = new Set();
 
@@ -400,13 +418,14 @@
     const identity = memberIdentity(data);
     const duplicate = mergeSnapshot(base, state).items.find(candidate =>
       !candidate.hidden && memberIdentity(candidate) === identity &&
-      !(candidate.key === item?.key && candidate.kind === item?.kind));
+      !(candidate.key === item?.key && candidate.kind === item?.kind) &&
+      !(item?.kind === 'existing' && memberIdentity(item) === identity));
     if (duplicate) return { ok: false, reason: "duplicate-member" };
 
     const record = { ...data, forum: `${location.origin}/members/${extractForumId(data.forumId || data.forum)}/`, hidden: false };
     // Explicit re-add supersedes a deletion tombstone and stale added records.
     for (const [key, override] of Object.entries(state.overrides)) {
-      if (override.hidden && hiddenOverrideIdentities({ [key]: override }).has(identity)) delete state.overrides[key];
+      if (item?.kind !== "existing" && override.hidden && hiddenOverrideIdentities({ [key]: override }).has(identity)) delete state.overrides[key];
     }
     const original = base.items.find(candidate => memberIdentity(candidate) === identity);
     if (item?.kind === "existing" || original) {
@@ -478,6 +497,7 @@
     }
     const card = template.cloneNode(true);
     card.removeAttribute("style");
+    card.removeAttribute('data-staff-card-key');
     return card;
   }
 
@@ -541,6 +561,9 @@
       if (!allowedSection(section)) continue;
       section.querySelectorAll(".cards > .card").forEach((card) => {
         const key = getCardKey(card, id);
+        // Preserve an occurrence key in published HTML so removing a sibling
+        // cannot renumber the remaining cards on the next page load.
+        if (key.includes(':card:')) card.setAttribute('data-staff-card-key', key);
         if (!cardByKey.has(key)) cardByKey.set(key, []);
         cardByKey.get(key).push({ card, sectionId: id });
       });
@@ -579,6 +602,7 @@
 
         const newCard = makeCardFromTemplate(clone, targetId, entry.card);
         if (!newCard) continue;
+        if (baseItem.key.includes(':card:')) newCard.setAttribute('data-staff-card-key', baseItem.key);
         await patchCard(newCard, data);
         targetCards.appendChild(newCard);
         entry.card.remove();
@@ -1774,6 +1798,7 @@
           state.overrides[item.key] = { ...cur, hidden: second.dataset.do === "remove" };
         }
         });
+        recordDraftAction(second.dataset.do === 'remove' ? 'staff-remove' : 'staff-restore');
         await refreshData();
         renderStaff();
         say(second.dataset.do === "remove" ? "Изменение добавлено в черновик" : "Человек возвращён");
@@ -1921,6 +1946,7 @@
       let saved;
       await updateStaffState(state => { saved = saveMemberDraft(state, baseSnapshot, item, data); return saved.ok; });
       if (!saved.ok) { say(saved.reason === 'duplicate-member' ? 'Этот человек уже есть в составе' : 'Раздел защищён', true); return false; }
+      recordDraftAction('staff-save');
 
       await refreshData();
       say("Сохранено • LIVE-код обновляется автоматически");
@@ -1947,6 +1973,7 @@
         state.overrides[item.key] = { ...cur, hidden: !item.hidden };
       }
       });
+      recordDraftAction(item.hidden ? 'staff-restore' : 'staff-remove');
       await refreshData();
       say(item.hidden ? "Человек возвращён" : "Убран из итогового кода");
       goBack();

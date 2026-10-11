@@ -8,7 +8,7 @@
 
   function renderTemplate(template = '', variables = {}) {
     const unknown = [];
-    const text = String(template).replace(/\{([a-z_][a-z0-9_]*)\}/gi, (match, key) => {
+    const text = String(template).replace(/\{([\p{L}_][\p{L}\p{N}_ -]{0,79})\}/gu, (match, key) => {
       const value = variables[key];
       if (value === undefined || value === null || value === '') {
         if (!unknown.includes(key)) unknown.push(key);
@@ -73,6 +73,44 @@
     };
   }
 
+  function bindAutoReplace(form, getState) {
+    if (!form) return;
+    if (form.__pkfaAutoReplace) { form.__pkfaAutoReplace.getState = getState; return; }
+    const controller = { getState, busy:false };
+    form.__pkfaAutoReplace = controller;
+    form.addEventListener('input', event => {
+      if (controller.busy || event.isComposing) return;
+      const editor = event.target;
+      if (!editor?.matches?.('textarea[name="message"],.fr-element[contenteditable="true"],[contenteditable="true"][role="textbox"]')) return;
+      const state = controller.getState?.() || {};
+      if (editor.tagName === 'TEXTAREA') {
+        const end = editor.selectionStart;
+        if (end !== editor.selectionEnd) return;
+        const before = editor.value.slice(0,end);
+        const expanded = root.PKFA.productivity.expandTypedSuffix(before,state);
+        if (expanded === before) return;
+        controller.busy = true;
+        try { setNativeValue(editor,expanded + editor.value.slice(end)); editor.setSelectionRange(expanded.length,expanded.length); }
+        finally { controller.busy = false; }
+      } else {
+        const selection = root.getSelection?.();
+        const node = selection?.anchorNode;
+        if (!selection?.isCollapsed || node?.nodeType !== 3 || !editor.contains(node)) return;
+        const before = node.data.slice(0,selection.anchorOffset);
+        const expanded = root.PKFA.productivity.expandTypedSuffix(before,state);
+        if (expanded === before) return;
+        controller.busy = true;
+        try {
+          node.data = expanded + node.data.slice(selection.anchorOffset);
+          selection.collapse(node,expanded.length);
+          editor.dispatchEvent(new Event('input',{bubbles:true}));
+          const html = form.querySelector('textarea[name="message_html"]');
+          if (html) setNativeValue(html,editor.innerHTML);
+        } finally { controller.busy = false; }
+      }
+    });
+  }
+
   class ReplyController {
     constructor(options = {}) {
       this.setText = options.setText || ((text) => setReplyText(text));
@@ -110,17 +148,21 @@
     }
 
     async insertTemplate(template, variables, options = {}) {
-      const rendered = renderTemplate(template?.text || template || '', variables);
-      await this.insert(rendered.text, options);
+      const source = template?.text || template || '';
+      const expanded = options.applyReplacements ? root.PKFA?.productivity?.applyReplacements?.(source, options.rules || []) ?? source : source;
+      const rendered = renderTemplate(expanded, variables);
+      await this.insert(rendered.text, { ...options, applyReplacements:false });
       return { status: 'inserted', ...rendered };
     }
 
     async sendTemplate(template, variables, meta = {}) {
-      const rendered = renderTemplate(template?.text || template || '', variables);
+      const source = template?.text || template || '';
+      const expanded = meta.applyReplacements ? root.PKFA?.productivity?.applyReplacements?.(source, meta.rules || []) ?? source : source;
+      const rendered = renderTemplate(expanded, variables);
       if (rendered.unknown.length) return { status: 'unknown-variables', ...rendered };
       return this.send(rendered.text, meta);
     }
   }
 
-  return { renderTemplate, findReplyForm, setNativeValue, setReplyText, submitReply, collectVariables, ReplyController };
+  return { renderTemplate, findReplyForm, setNativeValue, setReplyText, submitReply, collectVariables, bindAutoReplace, ReplyController };
 });

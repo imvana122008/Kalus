@@ -9,6 +9,84 @@ const card = '<div class="card"><div class="avatar-container"><img class="avatar
 const fixture = `<article class="message" id="js-post-4561"><div class="bbWrapper">${sections.map(id => `<section id="${id}"><h2>${id}</h2><div class="cards">${id === 'management' ? card : ''}</div></section>`).join('')}<section id="developers"><h2>Разработчики</h2>${card}</section></div><a href="/posts/4561/edit">Изменить</a></article><form action="/threads/1646/add-reply"><textarea name="message">DO NOT TOUCH</textarea><button type="submit">Ответить</button></form>`;
 const flush = () => new Promise(resolve => setTimeout(resolve, 15));
 
+test('official custom-element rules are parsed as inert text without executing page scripts', async () => {
+  const env=await setup();
+  try {
+    env.w.eval(fs.readFileSync(path.join(root,'src/productivity.js'),'utf8'));
+    const capture=fs.readFileSync(path.join(__dirname,'fixtures/forum-rules-3.html'),'utf8');
+    const doc=new env.w.DOMParser().parseFromString(capture,'text/html');
+    const text=env.w.PKFA.productivity.extractForumRuleText(doc);
+    assert.match(text,/1\. Общее/); assert.match(text,/Ник-Неймы/);
+    assert.equal(text.includes('connectedCallback'),false);
+    assert.equal(text.includes('counter-reset'),false);
+    const rules=env.w.PKFA.productivity.splitForumRules(text,'Правила форума','https://forum.pridekeeper.tech/threads/3/');
+    assert.ok(rules.length > 10);
+  } finally { env.dom.window.close(); }
+});
+
+test('typing replacement preserves textarea caret and rich editor markup', async () => {
+  const env=await setup(); const w=env.w;
+  try {
+    for(const file of ['productivity.js','replies.js']) w.eval(fs.readFileSync(path.join(root,'src',file),'utf8'));
+    const form=w.document.querySelector('form');
+    const state={replacements:[{from:'/ok',to:'Одобрено'}],tags:[]};
+    w.PKFA.replies.bindAutoReplace(form,()=>state);
+    const input=form.querySelector('textarea');input.value='Hello /ok tail';input.setSelectionRange(10,10);input.dispatchEvent(new w.Event('input',{bubbles:true}));
+    assert.equal(input.value,'Hello Одобрено tail');assert.equal(input.selectionStart,15);
+    const rich=w.document.createElement('div');rich.className='fr-element';rich.setAttribute('contenteditable','true');rich.innerHTML='<b>Keep</b><span>/ok </span>';form.append(rich);
+    w.getSelection().collapse(rich.querySelector('span').firstChild,4);
+    rich.dispatchEvent(new w.Event('input',{bubbles:true}));
+    assert.equal(rich.querySelector('b').textContent,'Keep');assert.equal(rich.querySelector('span').textContent,'Одобрено ');
+  } finally { env.dom.window.close(); }
+});
+
+test('official loader only fetches same-origin rule topics and reports failed pages', async () => {
+  const env=await setup(); const w=env.w;
+  try {
+    w.eval(fs.readFileSync(path.join(root,'src/productivity.js'),'utf8'));
+    const seen=[];
+    const fetcher=async url=>{seen.push(url);return {ok:true,url,text:async()=>url.endsWith('/forums/rules/')?'<div class="structItem-title"><a href="/threads/3/">Правила</a><a href="https://evil.test/threads/2/">Bad</a><a href="/members/3/">Member</a><a href="/threads/714/">Unavailable</a></div>':url.endsWith('/threads/3/')?'<article class="message"><div class="bbWrapper"><p>1.1 Не спамить.</p><p>1.2 Уважать участников.</p></div></article>':'<form>Login</form>'};};
+    const out=await w.PKFA.productivity.loadForumRules({origin:'https://forum.pridekeeper.tech',fetcher});
+    assert.equal(out.records.length,2);assert.equal(out.failed.length,1);assert.equal(out.pages,1);
+    assert.equal(seen.length,3);assert.ok(seen.every(url=>url.startsWith('https://forum.pridekeeper.tech/')));
+  } finally { env.dom.window.close(); }
+});
+
+test('deleting one of three existing duplicate cards preserves the other two after generation and reload', async () => {
+  const env = await setup(fixture.replace(card, card.repeat(3)));
+  try {
+    const items = env.w.__staffTest.scanRoot(env.w.document).items;
+    assert.equal(new Set(items.map(i => i.key)).size, 3);
+    const state = await env.w.__staffTest.getState();
+    state.overrides[items[1].key] = { hidden: true };
+    const generated = await env.w.__staffTest.generateCode(state, '4561');
+    const parsed = new JSDOM(generated.code).window.document;
+    assert.equal(parsed.querySelectorAll('#management .card').length, 2);
+    const remaining = env.w.__staffTest.scanRoot(parsed).items;
+    assert.equal(remaining.length, 2);
+    assert.ok(remaining.every(i => i.key !== items[1].key));
+    assert.equal(env.w.__staffTest.mergeSnapshot({items:remaining,sections:[]},state).items.filter(i=>!i.hidden).length,2);
+    assert.equal(parsed.querySelector('#developers').outerHTML, env.w.document.querySelector('#developers').outerHTML);
+  } finally { env.dom.window.close(); }
+});
+
+test('editing an existing duplicate affects one card and new members never inherit its occurrence key', async () => {
+  const env=await setup(fixture.replace(card,card.repeat(3)));
+  try {
+    env.shadow.querySelectorAll('.k-person')[1].querySelector('[data-do="edit"]').click();
+    env.shadow.querySelector('[data-f="name"]').value='Changed_Only';
+    env.shadow.querySelector('[data-save]').click();await flush();await flush();
+    const state=await env.w.__staffTest.getState();
+    state.added.push({id:'new',name:'New_Person',forumId:'55',section:'management',role:'Основатель'});
+    const parsed=new JSDOM((await env.w.__staffTest.generateCode(state,'4561')).code).window.document;
+    const items=env.w.__staffTest.scanRoot(parsed).items;
+    assert.equal(items.filter(i=>i.name==='Original').length,2);
+    assert.equal(items.filter(i=>i.name==='Changed_Only').length,1);
+    assert.equal(items.filter(i=>i.name==='New_Person').length,1);
+    assert.equal(new Set(items.map(i=>i.key)).size,4);
+  } finally {env.dom.window.close();}
+});
+
 test('real forum banner class overrides stale inner text for founders and deputy', async () => {
   const real = card.replace('class="position"', 'class="userBanner--osnov"').replace('<strong>Модератор</strong>', '<em class="userBanner--gm1"><strong>Гл. модератор</strong></em>');
   const deputy = real.replace('Original', 'Deputy').replace('/members/2/', '/members/19/').replace('class="userBanner--osnov"', 'class="userBanner--zgm1"');
@@ -315,14 +393,14 @@ for (const section of sections) test(`published ${section}: no duplicate after r
   } finally { env.dom.window.close(); }
 });
 
-test('removing a duplicated forum member removes every copy from generated HTML', async () => {
+test('legacy ambiguous deletion cannot erase every duplicated forum card', async () => {
   const env = await setup(fixture.replace(card, card + card + card));
   try {
     const state = (await env.w.PKFA.store.getState()).staff;
     state.overrides['forum:/members/2/'] = { hidden: true };
     const code = (await env.w.__staffTest.generateCode(state, '4561')).code;
     const parsed = new JSDOM(code).window.document;
-    assert.equal(parsed.querySelectorAll('#management .card').length, 0);
+    assert.equal(parsed.querySelectorAll('#management .card').length, 3);
     assert.equal(parsed.querySelectorAll('#developers .card').length, 1);
   } finally { env.dom.window.close(); }
 });
@@ -362,7 +440,7 @@ test('Helper button flows: navigation, templates, tags, replacements, rules, his
   try {
     Object.defineProperty(w.navigator, 'clipboard', { value: { writeText: async text => copied.push(text) } });
     w.confirm = () => true;
-    w.PKFA.version = '5.0.4';
+    w.PKFA.version = '5.0.5';
     w.PKFA.asset = name => `assets/${name}`;
     for (const file of ['history.js', 'complaints.js', 'preferences.js', 'replies.js', 'productivity.js', 'panel.js']) w.eval(fs.readFileSync(path.join(root, 'src', file), 'utf8'));
     await w.PKFA.store.update(state => {
@@ -469,4 +547,22 @@ test('Helper creation forms and settings import persist through their actual UI 
     assert.equal((await w.PKFA.store.getState()).ui.accent,'blue');
     assert.equal(w.document.querySelector('form[action*="add-reply"] textarea').value,'DO NOT TOUCH');
   } finally { env.dom.window.close(); }
+});
+
+test('editing a surviving duplicate keeps a deleted sibling hidden through publication and reload', async () => {
+ let env=await setup(fixture.replace(card,card+card+card));
+ try {
+  env.shadow.querySelector('.k-person [data-do="remove"]').click(); await flush();
+  const survivor=env.shadow.querySelector('.k-person:not(.off)');survivor.querySelector('[data-do="edit"]').click();
+  env.shadow.querySelector('[data-f="vk"]').value='https://vk.com/survivor';
+  env.shadow.querySelector('[data-save]').click(); await flush();
+  const state=(await env.w.PKFA.store.getState()).staff;
+  assert.equal(Object.values(state.overrides).filter(x=>x.hidden).length,1);
+  const generated=await env.w.__staffTest.generateCode(state,'4561');
+  const html=generated.code.replace(/^\[PARSEHTML\]\n|\n\[\/PARSEHTML\]$/g,'');
+  const parsed=new JSDOM(html).window.document;assert.equal(parsed.querySelectorAll('#management .card').length,2);
+  const saved=structuredClone(env.memory);env.dom.window.close();
+  env=await setup('<article class="message" id="js-post-4561">'+html+'<a href="/posts/4561/edit">Изменить</a></article>',saved);
+  assert.equal(env.shadow.querySelectorAll('.k-person').length,2);
+ } finally {env.dom.window.close();}
 });

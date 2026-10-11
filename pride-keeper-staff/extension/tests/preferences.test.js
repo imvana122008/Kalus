@@ -83,3 +83,11 @@ test('missing import groups preserve current arrays', async () => {
   assert.equal(result.value.tags[0].id, 'keep-tag');
   assert.equal(result.value.replacements[0].id, 'keep-replace');
 });
+
+test('official rule provenance survives export and import so refresh cannot duplicate it', () => {
+ const productivity=require('../src/productivity.js');
+ const rule={id:'forum-rule:3:1',source:'forum',updatedAt:'2026-10-11T00:00:00.000Z',url:'https://forum.pridekeeper.tech/threads/3/',title:'1.1',text:'Original'};
+ const imported=preferences.validateImport(preferences.exportSettings({rules:[rule]})).value.rules;
+ assert.equal(imported[0].source,'forum');assert.equal(imported[0].updatedAt,rule.updatedAt);
+ const merged=productivity.mergeForumRules(imported,[{...rule,text:'Updated'}]);assert.equal(merged.length,1);assert.equal(merged[0].text,'Updated');
+});

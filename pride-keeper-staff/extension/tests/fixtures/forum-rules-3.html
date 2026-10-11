@@ -1,0 +1,769 @@
+<div class="bbWrapper">
+
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Заявки на модератора</title>
+
+
+    <moderator-application></moderator-application>
+    <script>
+        class ModeratorApplication extends HTMLElement {
+            constructor() {
+                super();
+                this.attachShadow({ mode: 'open' });
+            }
+            connectedCallback() {
+                this.render();
+                this.initScripts();
+            }
+            render() {
+                this.shadowRoot.innerHTML = `
+                    <style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+:host {
+    display: block;
+    --primary-color: #4a76a8;
+    --accent-color: #785cf5;
+    --success-color: #2ed573;
+    --glass-bg: rgba(255, 255, 255, 0.12);
+    --glass-border: rgba(255, 255, 255, 0.2);
+    --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    --text-color: hsla(var(--xf-textColorMuted));
+    --text-muted: rgba(241, 242, 246, 0.7);
+    --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.container {
+    color: var(--text-color);
+    min-height: 100vh;
+    padding: 20px;
+    position: relative;
+    overflow-x: hidden;
+    max-width: 1000px;
+    margin: 0 auto;
+}
+.container::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: 
+        radial-gradient(circle at 20% 30%, rgba(120, 92, 245, 0.11) 0%, transparent 25%),
+        radial-gradient(circle at 80% 70%, rgba(120, 92, 245, 0.11) 0%, transparent 25%);
+    z-index: -1;
+}
+header {
+    text-align: center;
+    margin-bottom: 40px;
+    padding: 20px;
+}
+.moderator-icon {
+    color: var(--accent-color);
+    font-size: 3rem;
+    filter: drop-shadow(0 0 15px rgba(255, 204, 0, 0.3));
+    animation: shine 3s infinite;
+}
+@keyframes shine {
+    0%, 100% { 
+        transform: scale(1);
+        filter: drop-shadow(0 0 15px rgba(255, 204, 0, 0.3));
+    }
+    50% { 
+        transform: scale(1.05);
+        filter: drop-shadow(0 0 20px rgba(255, 204, 0, 0.5));
+    }
+}
+h1 {
+    color: var(--text-color);
+    font-size: 2.8rem;
+    margin-bottom: 10px;
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+    background: linear-gradient(to right, var(--text-color), var(--accent-color));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.subtitle {
+    color: hsla(var(--xf-textColorMuted));
+    font-size: 1.2rem;
+    letter-spacing: 1.5px;
+    max-width: 800px;
+    margin: 0 auto;
+    line-height: 1.6;
+}
+.notice-card {
+    background: rgb(255,255,255 / 4%);
+    backdrop-filter: blur(15px);
+    border-radius: 20px;
+    border: 1px solid var(--glass-border);
+    padding: 25px;
+    box-shadow: var(--glass-shadow);
+    margin-bottom: 30px;
+    border-left: 5px solid #785cf5;
+    position: relative;
+    overflow: hidden;
+}
+.notice-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, rgba(120,92,245 13%), transparent);
+    z-index: -1;
+}
+.notice-header {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    margin-bottom: 15px;
+}
+.notice-icon {
+    color: var(--accent-color);
+    font-size: 1.8rem;
+}
+.notice-title {
+    color: var(--text-color);
+    font-size: 1.8rem;
+    text-align: left;
+}
+.notice-text {
+        color: hsla(var(--xf-textColorMuted));
+    line-height: 1.7;
+    font-size: 1.1rem;
+    text-align: left;
+}
+.highlight {
+    color: var(--accent-color);
+    font-weight: bold;
+}
+.requirements-section {
+    background: rgb(255, 255, 255 / 0%);;
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    border-radius: 20px;
+    border: 1px solid var(--glass-border);
+    padding: 30px;
+    box-shadow: var(--glass-shadow);
+    margin-bottom: 30px;
+    text-align: left;
+}
+.section-title {
+    color: hsla(var(--xf-textColorMuted));
+    font-size: 2rem;
+    margin-bottom: 25px;
+    text-align: left;
+    position: relative;
+    padding-bottom: 15px;
+}
+.section-title::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100px;
+    height: 3px;
+    background: linear-gradient(to right, var(--accent-color), transparent);
+}
+.requirements-list {
+    list-style: none;
+    counter-reset: requirement-counter;
+}
+.requirement-item {
+    counter-increment: requirement-counter;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 15px;
+    padding: 20px;
+    margin-bottom: 15px;
+    border-left: 4px solid #785cf5;
+    position: relative;
+    transition: var(--transition);
+    display: flex;
+    align-items: flex-start;
+    gap: 15px;
+}
+.requirement-item:hover {
+    background: rgba(255, 255, 255, 0.12);
+    transform: translateX(5px);
+}
+.requirement-item::before {
+    content: counter(requirement-counter);
+    background: var(--accent-color);
+    color: #333;
+    font-weight: bold;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.requirement-text {
+    color: hsla(var(--xf-textColorMuted));
+    line-height: 1.6;
+    flex: 1;
+    text-align: left;
+}
+.form-section {
+    backdrop-filter: blur(15px);
+    border-radius: 20px;
+    border: 1px solid var(--glass-border);
+    padding: 30px;
+    box-shadow: var(--glass-shadow);
+    margin-bottom: 30px;
+    position: relative;
+    overflow: hidden;
+    text-align: left;
+}
+.form-section::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 5px;
+    background: linear-gradient(90deg, var(--accent-color), var(--primary-color));
+}
+.form-container {
+    margin-top: 25px;
+    text-align: left;
+}
+.copyable-form {
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 15px;
+    padding: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    position: relative;
+    font-family: 'Courier New', monospace;
+    font-size: 1.1rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--text-color);
+    margin-bottom: 25px;
+    max-height: 400px;
+    overflow-y: auto;
+    cursor: text;
+    text-align: left;
+}
+.copyable-form::-webkit-scrollbar {
+    width: 8px;
+}
+.copyable-form::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+}
+.copyable-form::-webkit-scrollbar-thumb {
+    background: var(--accent-color);
+    border-radius: 4px;
+}
+.copy-buttons {
+    display: flex;
+    gap: 15px;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+}
+.copy-btn {
+    background: #6d5af9;
+    border: 1px solid rgba(109, 109, 109, 0.3);
+    color: hsl(0deg 0% 100%);
+    padding: 12px 25px;
+    border-radius: 10px;
+    font-size: 1.1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    backdrop-filter: blur(10px);
+    text-align: left;
+}
+.copy-btn:hover {
+    background: rgba(120, 92, 245, 0.3);
+    transform: translateY(-3px);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+}
+.copy-btn:active {
+    transform: translateY(-1px);
+}
+.copy-btn.success {
+    background: rgba(46, 213, 115, 0.2);
+    border-color: rgba(46, 213, 115, 0.3);
+}
+.copy-btn.success:hover {
+    background: rgba(46, 213, 115, 0.3);
+}
+.field-highlight {
+    color: var(--accent-color);
+    font-weight: bold;
+    padding: 2px 5px;
+    border-radius: 3px;
+    display: block;
+    margin-top: 10px;
+    margin-bottom: 5px;
+}
+.field-highlight:first-child {
+    margin-top: 0;
+}
+.placeholder {
+    color: var(--accent-color)
+    font-style: italic;
+}
+.form-instructions {
+    background: rgba(10, 10, 10, 11%);
+    border-radius: 15px;
+    padding: 20px;
+    margin-top: 25px;
+    border-left: 4px solid #785cf5;
+    text-align: left;
+}
+.instructions-title {
+    color: var(--text-color);
+    font-size: 1.3rem;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+}
+.instructions-list {
+    list-style-type: none;
+    padding-left: 0;
+    text-align: left;
+}
+.instructions-list li {
+    margin-bottom: 10px;
+    color: hsla(var(--xf-textColorMuted));
+    padding-left: 25px;
+    position: relative;
+    text-align: left;
+}
+.instructions-list li:before {
+    content: '•';
+    color: #f7f7f7;
+    position: absolute;
+    left: 10px;
+}
+
+.important-note {
+    background: rgba(81, 81, 81, 10%);
+    border-radius: 15px;
+    padding: 20px;
+    margin-top: 30px;
+    border: 1px solid rgba(78, 74, 94, 0.3);
+    text-align: left;
+    position: relative;
+    overflow: hidden;
+}
+
+.important-note::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: -1;
+}
+.note-icon {
+    color: var(--accent-color);
+    font-size: 2rem;
+    margin-bottom: 15px;
+}
+.note-title {
+    color: var(--text-color);
+    font-size: 1.5rem;
+    margin-bottom: 10px;
+    text-align: left;
+}
+.note-text {
+    color: var(--text-color);
+    font-size: 1.1rem;
+    line-height: 1.6;
+    text-align: left;
+}
+.warning-text {
+    color: var(--accent-color);
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 10px;
+    text-align: left;
+}
+footer {
+    text-align: center;
+    margin-top: 40px;
+    padding: 20px;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.fade-in {
+    animation: fadeInUp 0.8s ease forwards;
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 10px;
+    }
+    
+    h1 {
+        font-size: 2.2rem;
+    }
+    
+    .copyable-form {
+        font-size: 1rem;
+        padding: 15px;
+    }
+    
+    .notice-title {
+        font-size: 1.5rem;
+    }
+    
+    .section-title {
+        font-size: 1.8rem;
+    }
+    
+    .copy-buttons {
+        flex-direction: column;
+        justify-content: flex-start;
+    }
+    
+    .copy-btn {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .form-section,
+    .requirements-section,
+    .notice-card,
+    .important-note {
+        padding: 20px 15px;
+    }
+}
+
+.requirement-important {
+    border-left: 4px solid var(--accent-color);
+}
+
+.requirement-important::before {
+    background: var(--accent-color);
+    color: #333;
+}
+
+.form-intro {
+    color: hsla(var(--xf-textColorMuted));
+    margin-bottom: 20px;
+    text-align: left;
+}
+
+.field-content {
+    margin-left: 15px;
+    padding: 3px 0;
+    display: block;
+}
+
+.form-line {
+    margin-bottom: 5px;
+    display: block;
+}
+                    </style>
+
+                    <div class="container">
+<header>
+    <div class="logo">
+        <i class="fas fa-user-shield moderator-icon"></i>
+        <div>
+<div class="logo">
+<img src="/data/assets/logo_default/2.webp" srcset="/data/assets/logo_default/2.webp 2x" width="250" height="100" alt="Форум –  Pride Keeper">
+            </div>
+
+            <h1>Правила форума</h1>
+            <div class="subtitle">
+                Основные правила форума и меры наказаний
+            </div>
+        </div>
+        <i class="fas fa-user-shield moderator-icon"></i>
+    </div>
+</header>
+<div class="notice-card fade-in">
+ <p class="notice-text">
+<style>
+  .subheading {
+    color: var(--accent-color);
+  }
+</style>
+
+<h2 class="subheading">1. Общее</h2>
+<p>1.1. При регистрации на форуме, пользователь соглашается выполнять данные правила;</p>
+<p>1.2. Незнание правил не освобождает от ответственности;</p>
+<p>1.3. Правила могут быть изменены или дополнены;</p>
+<p>1.4. В некоторых разделах форума некоторые из данных правил могут не действовать;</p>
+<p>1.5. Нельзя иметь больше 2-х форумных аккаунтов;</p>
+<p>1.6. Запрещено передавать свои форумные аккаунты;</p>
+<p>1.7. Запрещено использование картинок на форуме, упоминающих о фашизме и всего что связано с этим <small>[Свастика и прочее]</small></p>
+<p>1.8. Запрещена любая автоматизация действий (выполнение любых действий с помощью каких-либо скриптов, которые имитируют действия пользователя и/или используют (парсят) какую-либо информацию без одобрения главной администрации.</p>
+<style>
+  .subheading {
+    color: var(--accent-color);
+  }
+</style>
+
+<h2 class="subheading">2. Ник-Неймы</h2>
+<p>2.1. Запрещено использование ник-неймов, содержащих нецензурную речь/оскорбления;</p>
+<p>2.2. Запрещено использование ник-неймов, содержащих рекламу сторонних ресурсов;</p>
+<p>2.3. Запрещено использование в ник-неймах националистической символики;</p>
+<p>2.4. Запрещено использование ник-неймов, состоящих полностью из букв в верхнем регистре;</p>
+<p>2.5. Запрещено использование ник-неймов-клонов (второй форумник name, третий форумник name и т.д.).</p>
+
+<style>
+  .subheading {
+    color: var(--accent-color);
+  }
+</style>
+
+<h2 class="subheading">3. Аватар и подпись</h2>
+<p>3.1. Запрещено использовать аватар оскорбительного/порнографического характера;</p>
+<p>3.2. Запрещено использовать аватар, содержащий националистическую символику;</p>
+<p>3.3. Запрещено использовать в подписи нецензурную речь/оскорбления;</p>
+<p>3.4. Запрещено иметь подпись, содержащую рекламу сторонних ресурсов.</p>
+<style>
+  .subheading {
+    color: var(--accent-color);
+  }
+</style>
+<h2 class="subheading">4. Темы, сообщения и сообщения профилей.</h2>
+<p>4.1. Запрещено создавать темы с названием без смысла. Пример: «Skay_Esquea срочно посмотри», «опа», «qq all» и так далее;</p>
+<p>4.2. Запрещено писать сообщения, не соответствующие тематике раздела/темы;</p>
+<p>4.3. Запрещено писать сообщения, в которых содержатся ссылки на сторонние ресурсы;</p>
+<p>4.4. Запрещено использовать в сообщениях изображения порнографического характера;</p>
+<p>4.5. Запрещено писать сообщения в темах, не имеющие смысла. Пример: «xD», «Я тут был», «up», и так далее;</p>
+<p>4.6. Запрещено писать/создавать темы, содержащие одну и ту же информацию;</p>
+<p>4.7. Запрещено использовать в названиях тем/сообщениях нецензурную речь, а так же оскорбления;</p>
+<p>4.8. Запрещено писать сообщения и темы в верхнем регистре;</p>
+<p>4.9. Запрещено писать сообщения, содержащие клевету, ложную информацию;</p>
+<p>4.10. Запрещено создавать темы с обращением к определенному человеку (исключение: «Жалобы на администрацию»);</p>
+<p>4.11. Запрещено писать сообщения, которые начинают разжигать межнациональную/религиозную рознь;</p>
+<p>4.12. Запрещено создавать темы с продажей/покупкой/обменом вне-игровых ценностей;</p>
+<p>4.13. Запрещено упоминание/оскорбление родственников пользователей;</p>
+<p>4.14. Запрещено оскорблять пользователей форума;</p>
+<p>4.15. Запрещено публиковать личную информацию игроков/администрации (фотографии и др);</p>
+<p>4.16. Запрещено набивать сообщения (в том числе и в профилях) на форуме;</p>
+<p>4.17. Запрещено использование ботов/скриптов для накрутки реакций.</p>
+<style>
+  .subheading {
+    color: var(--accent-color);
+  }
+</style>
+<h2 class="subheading">5. Положение администрации форума.</h2>
+<p>5.1. Администрация форума оставляет за собой право удаления/редактирования любого содержимого, опубликованного здесь, без объяснения причин пользователям;</p>
+<p>5.2. Администрация форума оставляет за собой право принять какие-либо меры против любой учетной записи от предупреждения до бессрочной блокировки;</p>
+<p>5.3. При нарушении правил форума, администрация форума имеет право применить санкции в системе БОТА pride keeper;</p>
+<p>5.4. В случае блокировки форумного аккаунта, Вы не сможете зарегистрировать новый в течении 14 дней.</p>
+<p>5.6. Модерация форума оставляет за собой модерацию тем разделов в том числе и выдачу наказаний за те или иные нарушения в рамках регламента.</p>
+<p>5.7. Модераторы discord обязаны вести себя на форуме в эмпатичном стиле, допускается обращение на "ты" и дискуссии в рамках установленных правил.
+(запрещено использовать бранную лексику, сарказм, унижения.</p>
+    </p>    </div>
+   
+<footer>
+    <p></p>
+    <p style="margin-top: 10px; font-size: 0.8rem;">
+        <i class="fas fa-shield-alt" style="margin-right: 5px;"></i>
+            </p>
+</footer>
+                    </div>
+
+                    <div class="scroll-top" id="scrollTop">
+<i class="fas fa-chevron-up"></i>
+                    </div>
+                `;
+            }
+
+            initScripts() {
+                const formTemplate = `1. Ваш игровой ник: [COLOR=rgb(119, 104, 235)] [введите ваш игровой ник][/COLOR]
+2. Ваше реальное имя и возраст: [COLOR=rgb(119, 104, 235)][введите ваше имя и возраст][/COLOR]
+3. Ссылка на Ваш VK: [COLOR=rgb(119, 104, 235)][введите ссылку на ваш профиль ВКонтакте][/COLOR]
+4. Ваш discord ID и @user#0000: [COLOR=rgb(119, 104, 235)][введите свой discord и user ID][/COLOR]
+4. Страна и город проживания, часовой пояс от МСК: [COLOR=rgb(119, 104, 235)][введите страну, город и часовой пояс][/COLOR]
+5. Почему вы хотите встать на пост модератора discord сервера?: [COLOR=rgb(119, 104, 235)][введите свой ответ][/COLOR]
+6. Имеется опыт на посту Модератора?(В случае наличия укажите сервер,должность):  [COLOR=rgb(119, 104, 235)] [введите введите инф ник][/COLOR]
+7. Подавая заявку, я согласен со всеми требованиями,и готов получить вечную блокировку за обман: [COLOR=rgb(119, 104, 235)][Да/Нет][/COLOR]`;
+
+                const copyAllBtn = this.shadowRoot.getElementById('copyAllBtn');
+                const copyTemplateBtn = this.shadowRoot.getElementById('copyTemplateBtn');
+                const applicationForm = this.shadowRoot.getElementById('applicationForm');
+                const scrollTopBtn = this.shadowRoot.getElementById('scrollTop');
+
+                const copyToClipboard = async (text, button) => {
+                    try {
+await navigator.clipboard.writeText(text);
+
+// Визуальная обратная связь
+const originalText = button.innerHTML;
+button.classList.add('success');
+button.innerHTML = '<i class="fas fa-check"></i> Шаблон скопирован';
+
+setTimeout(() => {
+    button.classList.remove('success');
+    button.innerHTML = originalText;
+}, 2000);
+
+                    } catch (err) {
+console.error('Ошибка копирования: ', err);
+alert('Не удалось скопировать текст. Попробуйте выделить и скопировать вручную.');
+                    }
+                };
+
+                copyAllBtn.addEventListener('click', () => {
+                    let formText = applicationForm.textContent;
+
+                    formText = formText
+.replace(/\n+/g, '\n') //
+.replace(/^\s+|\s+$/g, '') //
+.replace(/\s*\n\s*/g, '\n') //
+.replace(/\n{2,}/g, '\n'); //
+                    
+                    const lines = formText.split('\n');
+                    const formattedLines = lines.map(line => line.trim()).filter(line => line.length > 0);
+                    
+                    // Собираем обратно в строку
+                    const finalText = formattedLines.join('\n');
+                    
+                    copyToClipboard(finalText, copyAllBtn);
+                });
+
+                copyTemplateBtn.addEventListener('click', () => {
+                    copyToClipboard(formTemplate, copyTemplateBtn);
+                });
+
+                applicationForm.addEventListener('click', function() {
+                    this.focus();
+                });
+
+                applicationForm.setAttribute('contenteditable', 'true');
+
+                const observerOptions = {
+                    threshold: 0.1,
+                    rootMargin: '0px 0px -50px 0px'
+                };
+
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+if (entry.isIntersecting) {
+    entry.target.classList.add('fade-in');
+}
+                    });
+                }, observerOptions);
+
+                this.shadowRoot.querySelectorAll('.notice-card, .requirements-section, .form-section, .important-note').forEach((el) => {
+                    observer.observe(el);
+                });
+
+                this.shadowRoot.querySelectorAll('.requirement-item').forEach(item => {
+                    item.addEventListener('mouseenter', function() {
+this.style.transform = 'translateX(5px)';
+                    });
+                    
+                    item.addEventListener('mouseleave', function() {
+this.style.transform = 'translateX(0)';
+                    });
+                });
+
+                window.addEventListener('load', () => {
+                    this.shadowRoot.querySelector('.container').style.opacity = '0';
+                    this.shadowRoot.querySelector('.container').style.transition = 'opacity 0.9s ease';
+                    
+                    setTimeout(() => {
+this.shadowRoot.querySelector('.container').style.opacity = '1';
+                    }, 100);
+                    
+                    setTimeout(() => {
+this.shadowRoot.querySelectorAll('.fade-in').forEach(el => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(30px)';
+});
+                    }, 300);
+                });
+
+                applicationForm.addEventListener('focus', function() {
+                    this.style.boxShadow = '0 0 0 2px rgba(255, 204, 0, 0.3)';
+                    this.style.backgroundColor = 'rgba(0, 0, 0, 0.3)';
+                });
+
+                applicationForm.addEventListener('blur', function() {
+                    this.style.boxShadow = 'none';
+                    this.style.backgroundColor = 'rgba(0, 0, 0, 0.2)';
+                });
+
+                applicationForm.addEventListener('dblclick', function() {
+                    const range = document.createRange();
+                    range.selectNodeContents(this);
+                    const selection = window.getSelection();
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                });
+
+                applicationForm.addEventListener('keydown', function(e) {
+
+                    if (e.key === 'Enter') {
+e.preventDefault();
+
+const selection = window.getSelection();
+const range = selection.getRangeAt(0);
+
+const br = document.createElement('br');
+range.deleteContents();
+range.insertNode(br);
+
+range.setStartAfter(br);
+range.collapse(true);
+selection.removeAllRanges();
+selection.addRange(range);
+                    }
+                });
+
+                applicationForm.addEventListener('input', function() {
+                    const selection = window.getSelection();
+                    const range = selection.getRangeAt(0);
+                    const caretPosition = range.startOffset;
+                    
+                    let content = this.innerHTML;
+                    content = content.replace(/\s{2,}/g, ' ');
+                    content = content.replace(/(<br\s*\/?>\s*){2,}/gi, '<br>');
+                    this.innerHTML = content;
+                    setTimeout(() => {
+const newRange = document.createRange();
+const textNode = this.childNodes[0] || this;
+newRange.setStart(textNode, Math.min(caretPosition, textNode.length));
+newRange.collapse(true);
+selection.removeAllRanges();
+selection.addRange(newRange);
+                    }, 0);
+                });
+            }
+        }
+
+        customElements.define('moderator-application', ModeratorApplication);
+    </script>
+
+</div>
