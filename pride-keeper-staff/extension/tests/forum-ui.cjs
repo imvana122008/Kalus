@@ -146,8 +146,10 @@ const server = http.createServer(async (req, res) => {
       await tab.locator('[data-f="forum"]').fill(`/members/${7000 + index}/`);
     }
     await Promise.all([p, sameThread].map(tab => tab.locator('[data-save]').click()));
+    await Promise.all([p, sameThread].map(tab => tab.locator('.k-form').waitFor({ state: 'detached' })));
     await p.waitForFunction(async () => (await PKFA.store.getState()).staffByThread['9000'].added.filter(item => item.name.startsWith('Parallel_Member_')).length === 2);
-    await sameThread.close(); await open('9000'); assert.equal(await row('Parallel_Member_').count(), 2);
+    await open('9000'); await row('Parallel_Member_').nth(1).waitFor(); assert.equal(await row('Parallel_Member_').count(), 2);
+    await sameThread.close();
     assert.equal(errors.length, 0, errors.join('\n'));
     const report = { passed: true, savedExistingPosts: savedPosts, newReplies: replies, allFiveSections: true, threadIsolation: true, concurrentTabs: true, concurrentStaffAdditions: true, manualPublicationWithAutoOff: true, roles: true, profileAndVkLinks: true, developerPreserved: true, viewportWidths: [1440, 768, 360], pageErrors: errors, source: 'captured forum card + synthetic offline page; no live publication' };
     fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));
@@ -157,3 +159,4 @@ const server = http.createServer(async (req, res) => {
     throw error;
   } finally { await browser.close(); server.close(); }
 })().catch(error => { console.error(error); server.close(); process.exitCode = 1; });
+
