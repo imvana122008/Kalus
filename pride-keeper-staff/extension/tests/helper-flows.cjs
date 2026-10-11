@@ -12,6 +12,7 @@ module.exports=async function helperFlows(p,origin,output) {
   await route('home');
   assert.equal(await p.locator('.pkfa-profile-card,.pkfa-clock').count(),0);
   assert.equal(await p.locator('.pkfa-side__item svg').count(),10);
+  assert.equal(await p.locator('.pkfa-side__brand em').innerText(),'v5.0.5');assert.ok(await p.locator('.pkfa-side__brand em').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>0));
   await p.screenshot({path:path.join(output,'home.png')});
 
   await route('replace');
