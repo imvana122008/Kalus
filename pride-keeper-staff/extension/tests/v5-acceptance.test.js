@@ -33,13 +33,13 @@ function fixtureDocument() {
   };
 }
 
-test('release identifiers and forum-only scope are v5.0.2', () => {
+test('release identifiers and forum-only scope are v5.0.3', () => {
   const manifest = JSON.parse(read('manifest.json'));
-  assert.equal(manifest.version, '5.0.2');
+  assert.equal(manifest.version, '5.0.3');
   assert.deepEqual(manifest.host_permissions, ['https://forum.pridekeeper.tech/*']);
   assert.deepEqual(manifest.content_scripts[0].matches, ['https://forum.pridekeeper.tech/*']);
-  assert.match(read('src/bootstrap.js'), /version:\s*'5\.0\.2'/);
-  assert.match(read('src/staff.js'), /__PRIDE_KEEPER_STAFF__\s*=\s*"5\.0\.2"/);
+  assert.match(read('src/bootstrap.js'), /version:\s*'5\.0\.3'/);
+  assert.match(read('src/staff.js'), /__PRIDE_KEEPER_STAFF__\s*=\s*"5\.0\.3"/);
 });
 
 test('v5 migration survives fifty refreshes with one root, toolbar and launcher', async () => {

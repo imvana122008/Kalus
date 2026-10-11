@@ -6,7 +6,7 @@
   const initialContext = window.PKFA?.context?.inspectDocument?.(document, location);
   if (/\/threads\//i.test(location.pathname) && initialContext && !initialContext.isStaffThread) return;
   if (window.__PRIDE_KEEPER_STAFF__) return;
-  window.__PRIDE_KEEPER_STAFF__ = "5.0.2";
+  window.__PRIDE_KEEPER_STAFF__ = "5.0.3";
 
   // ============================================================
   // PRIDE KEEPER STAFF — ОСНОВНЫЕ НАСТРОЙКИ
@@ -14,7 +14,7 @@
   // Если ты кидаешь мне правки в чат, я дальше меняю именно этот файл.
   // ============================================================
   const CONFIG = {
-    version: "5.0.2",
+    version: "5.0.3",
 
     storageKey: "kalusStaffEditorState",
     codeCacheKey: "prideKeeperStaffGeneratedCode",
@@ -35,6 +35,7 @@
     ],
 
     roles: [
+      "Основатель",
       "Главный модератор",
       "Заместитель главного модератора",
       "Куратор модерации",
@@ -253,10 +254,33 @@
     return `fallback:${sectionId}:${name}`;
   }
 
+  // Forum badges paint their title in a background image. The nested strong
+  // often contains a stale template title, so read the outer badge first.
+  const FORUM_ROLES = [
+    { role: 'Основатель', banner: 'userBanner--osnov', name: 'username--style3' },
+    { role: 'Главный модератор', banner: 'userBanner--gm1', name: 'username--style4' },
+    { role: 'Заместитель главного модератора', banner: 'userBanner--zgm1', name: 'username--style5' },
+    { role: 'Куратор модерации', banner: 'userBanner--curmod', name: 'username--style10' },
+    { role: 'Старший модератор', banner: 'userBanner--stmod', name: 'username--style9' },
+    { role: 'Модератор', banner: 'userBanner--mod', name: 'username--style8' }
+  ];
+
+  function cardRole(card) {
+    const badge = [...card.children].find(node => [...node.classList].some(c => c.startsWith('userBanner--')));
+    const known = FORUM_ROLES.find(entry => badge?.classList.contains(entry.banner));
+    return known?.role || card.querySelector('strong')?.textContent?.trim() || '';
+  }
+
+  function roleAppearance(role) {
+    const key = String(role || '').trim().toLowerCase();
+    return FORUM_ROLES.find(entry => entry.role.toLowerCase() === key)
+      || (key === 'гл. модератор' ? FORUM_ROLES[1] : null)
+      || (key === 'зам. гл. модератора' ? FORUM_ROLES[2] : null);
+  }
+
   function getCardData(card, sectionId, root = document) {
     const nameEl = card.querySelector(".name");
     const avatar = card.querySelector(".avatar");
-    const role = card.querySelector("strong");
     const vk = getVkLink(card);
     const forum = getForumLink(card);
 
@@ -274,7 +298,7 @@
       forumId: extractForumId(forumHref) || extractForumId(avatarSrc),
       avatar: avatarSrc ? new URL(avatarSrc, location.href).href : "",
       avatarPath: avatarSrc || "",
-      role: role?.textContent?.trim() || ""
+      role: cardRole(card)
     };
   }
 
@@ -411,6 +435,19 @@
 
     if (nameEl) nameEl.textContent = data.name || "";
     if (role) role.textContent = data.role || "";
+    const appearance = roleAppearance(data.role);
+    const badge = [...card.children].find(node => node.classList.contains('position') || [...node.classList].some(c => c.startsWith('userBanner--')));
+    if (badge) {
+      // Remove inherited badge classes even for a custom textual role.
+      for (const node of [badge, ...badge.querySelectorAll('[class]')]) {
+        for (const cls of [...node.classList]) if (cls.startsWith('userBanner--')) node.classList.remove(cls);
+      }
+      badge.classList.add(appearance?.banner || 'position');
+    }
+    if (nameEl) {
+      for (const cls of [...nameEl.classList]) if (/^username--style\d+$/.test(cls)) nameEl.classList.remove(cls);
+      if (appearance?.name) nameEl.classList.add(appearance.name);
+    }
 
     patchLink(vk, data.vk);
     patchLink(forum, data.forum);

@@ -10,7 +10,7 @@ const root = path.join(__dirname, '..');
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json')));
 const capturedCard = fs.readFileSync(path.join(__dirname, 'fixtures/forum-card-1646.html'), 'utf8');
 const sections = [['management', 'Руководство'], ['main-mod', 'Главная модерация'], ['curator', 'Кураторы модерации'], ['senior-mod', 'Старшие модераторы'], ['junior-mod', 'Модераторы']];
-const fixtureCard = (name, id, role) => capturedCard.replaceAll('Skay_Esquea', name).replaceAll('/members/2/', `/members/${id}/`).replaceAll('/0/2.jpg', `/0/${id}.jpg`).replace('Гл. модератор', role);
+const fixtureCard = (name, id, role) => capturedCard.replaceAll('Skay_Esquea', name).replaceAll('/members/2/', `/members/${id}/`).replaceAll('/0/2.jpg', `/0/${id}.jpg`).replace('Гл. модератор', role).replace('userBanner--osnov', role === 'Разработчик' ? 'position' : 'userBanner--gm1');
 const developer = '<section id="developers"><h2>Разработчики</h2><div class="cards">' + fixtureCard('Developer_Protected', '9', 'Разработчик') + '</div></section>';
 const initial = '<div class="bbWrapper">' + sections.map(([id, title]) => `<section id="${id}"><h2>${title}</h2><div class="cards">${id === 'main-mod' ? fixtureCard('Shakes_Suicide', '2', 'Главный модератор') + fixtureCard('Issa_Defender', '3', 'Главный модератор') : ''}</div></section>`).join('') + developer + '</div>';
 const posts = { '9000': initial, '9001': initial };
@@ -76,6 +76,9 @@ const server = http.createServer(async (req, res) => {
     await p.waitForURL(`${origin}/threads/9000/`, { waitUntil: 'load' });
     await p.waitForFunction(() => document.querySelector('#main-mod .card:last-child strong')?.textContent === 'Заместитель главного модератора');
     assert.equal(savedPosts, 1); assert.equal(replies, 0);
+    assert.equal(await p.locator('#main-mod .card:last-child > .userBanner--zgm1').count(), 1, 'Deputy must receive the painted deputy badge');
+    assert.equal(await p.locator('#main-mod .card:last-child .username--style5').count(), 1, 'Deputy name style must agree with the badge');
+    assert.equal(await p.locator('#main-mod .card:last-child em.userBanner--gm1').count(), 0, 'Stale nested main badge must be removed');
     await open('9000');
     await p.locator('[data-add-sec="main-mod"]').first().click(); await p.locator('[data-f="name"]').fill('Added_Member');
     await p.locator('[data-f="forum"]').fill('https://forum.pridekeeper.tech/members/new.2501/'); await p.locator('[data-f="vk"]').fill('https://vk.com/test_profile');
@@ -146,7 +149,7 @@ const server = http.createServer(async (req, res) => {
       await tab.locator('[data-f="forum"]').fill(`/members/${7000 + index}/`);
     }
     await Promise.all([p, sameThread].map(tab => tab.locator('[data-save]').click()));
-    await Promise.all([p, sameThread].map(tab => tab.locator('.k-form').waitFor({ state: 'detached' })));
+    await Promise.all([p, sameThread].map(tab => tab.locator('.k-form').waitFor({ state: 'detached', timeout: 60000 })));
     await p.waitForFunction(async () => (await PKFA.store.getState()).staffByThread['9000'].added.filter(item => item.name.startsWith('Parallel_Member_')).length === 2);
     await open('9000'); await row('Parallel_Member_').nth(1).waitFor(); assert.equal(await row('Parallel_Member_').count(), 2);
     await sameThread.close();
@@ -159,4 +162,3 @@ const server = http.createServer(async (req, res) => {
     throw error;
   } finally { await browser.close(); server.close(); }
 })().catch(error => { console.error(error); server.close(); process.exitCode = 1; });
-

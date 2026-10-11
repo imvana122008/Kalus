@@ -5,9 +5,66 @@ const path = require('node:path');
 const { JSDOM } = require('jsdom');
 const root = path.join(__dirname, '..');
 const sections = ['management', 'main-mod', 'curator', 'senior-mod', 'junior-mod'];
-const card = '<div class="card"><div class="avatar-container"><img class="avatar"></div><div class="name">Original</div><div class="userBanner--osnov"><strong>Модератор</strong></div><div class="links"><a href="https://forum.pridekeeper.tech/members/2/">Форум</a></div></div>';
+const card = '<div class="card"><div class="avatar-container"><img class="avatar"></div><div class="name">Original</div><div class="position"><strong>Модератор</strong></div><div class="links"><a href="https://forum.pridekeeper.tech/members/2/">Форум</a></div></div>';
 const fixture = `<article class="message" id="js-post-4561"><div class="bbWrapper">${sections.map(id => `<section id="${id}"><h2>${id}</h2><div class="cards">${id === 'management' ? card : ''}</div></section>`).join('')}<section id="developers"><h2>Разработчики</h2>${card}</section></div><a href="/posts/4561/edit">Изменить</a></article><form action="/threads/1646/add-reply"><textarea name="message">DO NOT TOUCH</textarea><button type="submit">Ответить</button></form>`;
 const flush = () => new Promise(resolve => setTimeout(resolve, 15));
+
+test('real forum banner class overrides stale inner text for founders and deputy', async () => {
+  const real = card.replace('class="position"', 'class="userBanner--osnov"').replace('<strong>Модератор</strong>', '<em class="userBanner--gm1"><strong>Гл. модератор</strong></em>');
+  const deputy = real.replace('Original', 'Deputy').replace('/members/2/', '/members/19/').replace('class="userBanner--osnov"', 'class="userBanner--zgm1"');
+  const env = await setup(fixture.replace(card, real + deputy));
+  try {
+    const items = env.w.__staffTest.scanRoot(env.w.document).items;
+    assert.equal(items[0].role, 'Основатель');
+    assert.equal(items[1].role, 'Заместитель главного модератора');
+    assert.match(env.shadow.querySelector('.k-role').textContent, /Основатель/);
+  } finally { env.dom.window.close(); }
+});
+
+test('changing a founder role changes the painted banner and preserves unrelated markup', async () => {
+  const env = await setup();
+  try {
+    const state = await env.w.__staffTest.getState();
+    const original = env.w.__staffTest.scanRoot(env.w.document).items[0];
+    state.overrides[original.key] = { role: 'Заместитель главного модератора' };
+    const generated = await env.w.__staffTest.generateCode(state, '4561');
+    const parsed = new JSDOM(generated.code).window.document;
+    assert.ok(parsed.querySelector('#management .userBanner--zgm1'));
+    assert.equal(parsed.querySelector('#management .userBanner--osnov'), null);
+    assert.equal(parsed.querySelector('#management strong').textContent, 'Заместитель главного модератора');
+    assert.equal(parsed.querySelector('#developers').outerHTML, env.w.document.querySelector('#developers').outerHTML);
+  } finally { env.dom.window.close(); }
+});
+
+test('captured Edge post reads painted roles and new founder round-trips without demotion', async () => {
+  const captured = fs.readFileSync(path.join(__dirname, 'fixtures/forum-post-1646.html'), 'utf8');
+  const env = await setup(`<article class="message" id="js-post-4561">${captured}<a href="/posts/4561/edit">Изменить</a></article>`);
+  try {
+    const items = env.w.__staffTest.scanRoot(env.w.document).items;
+    for (const name of ['Skay_Esquea', 'Sanchez_Perrault']) assert.equal(items.find(i => i.name === name).role, 'Основатель');
+    assert.equal(items.find(i => i.name === 'Isya_Defender').role, 'Заместитель главного модератора');
+    assert.equal(items.find(i => i.name === 'Alex_Covatto').role, 'Куратор модерации');
+    const state = await env.w.__staffTest.getState();
+    state.added.push({ id:'founder-test', name:'Founder_Test', forumId:'9010', forum:'https://forum.pridekeeper.tech/members/9010/', section:'management', role:'Основатель' });
+    const generated = await env.w.__staffTest.generateCode(state, '4561');
+    const parsed = new JSDOM(generated.code).window.document;
+    const added = [...parsed.querySelectorAll('#management .card')].find(c => c.textContent.includes('Founder_Test'));
+    assert.ok(added.querySelector('.userBanner--osnov'));
+    assert.equal(added.querySelector('strong').textContent, 'Основатель');
+    assert.equal(env.w.__staffTest.scanRoot(parsed).items.find(i=>i.name==='Founder_Test').role, 'Основатель');
+  } finally { env.dom.window.close(); }
+});
+
+test('custom textual role removes inherited painted rank and survives generation', async () => {
+  const env = await setup(fixture.replace('class="position"', 'class="userBanner--osnov"'));
+  try {
+    const state = await env.w.__staffTest.getState();
+    state.overrides[env.w.__staffTest.scanRoot(env.w.document).items[0].key] = { role:'Советник проекта' };
+    const parsed = new JSDOM((await env.w.__staffTest.generateCode(state, '4561')).code).window.document;
+    assert.equal(parsed.querySelector('#management [class*="userBanner--"]'), null);
+    assert.equal(env.w.__staffTest.scanRoot(parsed).items[0].role, 'Советник проекта');
+  } finally { env.dom.window.close(); }
+});
 
 test('discard drops local edits without overwriting another tab saved member', async () => {
   const env = await setup();
@@ -46,7 +103,7 @@ async function setup(html = fixture, saved = {}, url = 'https://forum.pridekeepe
   for (const file of ['store.js', 'context.js', 'staff-gate.js']) w.eval(fs.readFileSync(path.join(root, 'src', file), 'utf8'));
   await w.PKFA.store.update(state => { state.staff.autoPublish.enabled = false; });
   let source = fs.readFileSync(path.join(root, 'src/staff.js'), 'utf8');
-  source = source.replace('  applyLauncherSettings();\n})();', '  window.__staffTest = { generateCode, refreshData, scanRoot, mergeSnapshot, updateAutoPublishStatus, getState, setState };\n  applyLauncherSettings();\n})();');
+  source = source.replace(/  applyLauncherSettings\(\);\r?\n\}\)\(\);/, '  window.__staffTest = { generateCode, refreshData, scanRoot, mergeSnapshot, updateAutoPublishStatus, getState, setState };\n  applyLauncherSettings();\n})();');
   w.eval(source);
   const host = w.document.querySelector('#kalus-staff-builder-host');
   const shadow = host.shadowRoot;
@@ -305,7 +362,7 @@ test('Helper button flows: navigation, templates, tags, replacements, rules, his
   try {
     Object.defineProperty(w.navigator, 'clipboard', { value: { writeText: async text => copied.push(text) } });
     w.confirm = () => true;
-    w.PKFA.version = '5.0.2';
+    w.PKFA.version = '5.0.3';
     w.PKFA.asset = name => `assets/${name}`;
     for (const file of ['history.js', 'complaints.js', 'preferences.js', 'replies.js', 'productivity.js', 'panel.js']) w.eval(fs.readFileSync(path.join(root, 'src', file), 'utf8'));
     await w.PKFA.store.update(state => {
@@ -383,5 +440,33 @@ test('Helper button flows: navigation, templates, tags, replacements, rules, his
     assert.equal((await w.PKFA.store.getState()).ui.inlinePosition, 'above');
     await click('[data-helper-close]'); assert.equal(host.querySelector('[data-helper-overlay]').getAttribute('aria-hidden'), 'true');
     assert.equal(w.document.querySelector('form[action*="add-reply"] textarea').value, 'DO NOT TOUCH');
+  } finally { env.dom.window.close(); }
+});
+
+test('Helper creation forms and settings import persist through their actual UI handlers', async () => {
+  const env = await setup(); const { w } = env;
+  try {
+    w.PKFA.asset = name => name; w.confirm = () => true;
+    for (const file of ['history.js', 'complaints.js', 'preferences.js', 'replies.js', 'productivity.js', 'panel.js']) w.eval(fs.readFileSync(path.join(root, 'src', file), 'utf8'));
+    await w.PKFA.panel.mount(w.document, { context:w.PKFA.context.inspectDocument(w.document,w.location), state:await w.PKFA.store.getState(), actionExecutor:{}, replyController:{} });
+    const host = w.document.querySelector('#pkfa-root');
+    const route = async name => { host.querySelector(`.pkfa-side [data-route="${name}"]`).click(); await flush(); };
+    const submit = async (selector, values) => {
+      const form = host.querySelector(selector); assert.ok(form);
+      for (const [name,value] of Object.entries(values)) form.querySelector(`[name="${name}"]`).value=value;
+      form.dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true})); await flush(); await flush();
+    };
+    await route('tags'); await submit('[data-tag-form]',{title:'Added tag',group:'QA',text:'Tag body'});
+    assert.ok((await w.PKFA.store.getState()).tags.some(i=>i.title==='Added tag'));
+    await route('replace'); await submit('[data-replacement-form]',{from:'qa-short',to:'QA expanded'});
+    assert.ok((await w.PKFA.store.getState()).replacements.some(i=>i.from==='qa-short'));
+    await route('rules'); await submit('[data-rule-form]',{title:'Added rule',category:'QA',text:'Rule body',url:'https://forum.pridekeeper.tech/help/'});
+    assert.ok((await w.PKFA.store.getState()).rules.some(i=>i.title==='Added rule'));
+    await route('settings');
+    const input=host.querySelector('[data-import-file]');
+    Object.defineProperty(input,'files',{value:[{text:async()=>JSON.stringify({version:5,ui:{accent:'blue'}})}]});
+    input.dispatchEvent(new w.Event('change',{bubbles:true})); await flush(); await flush();
+    assert.equal((await w.PKFA.store.getState()).ui.accent,'blue');
+    assert.equal(w.document.querySelector('form[action*="add-reply"] textarea').value,'DO NOT TOUCH');
   } finally { env.dom.window.close(); }
 });
