@@ -1,9 +1,10 @@
 (function (root, factory) {
-  const api = factory();
+  const contextApi = typeof module === 'object' && module.exports ? require('./context.js') : root.PKFA?.context;
+  const api = factory(root, contextApi);
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.PKFA = root.PKFA || {};
   root.PKFA.complaints = api;
-})(typeof globalThis !== 'undefined' ? globalThis : window, function () {
+})(typeof globalThis !== 'undefined' ? globalThis : window, function (root, contextApi) {
   'use strict';
 
   const STATUSES = [
@@ -27,8 +28,7 @@
 
   function buildCard(doc, context = {}) {
     const rawStatus = nodeText(doc, '[data-complaint-status], .complaintStatus, [class*="complaint-status"]');
-    const firstPost = doc?.querySelector?.('article.message, .message, [id^="post-"]');
-    const author = clean(firstPost?.querySelector?.('[data-xf-init="member-tooltip"], .message-name a, .username')?.textContent || '');
+    const author = contextApi.collectThreadAuthor(doc, context).name;
     const accused = nodeText(doc, '[data-accused], .complaint-accused, [class*="accused"]');
     return {
       threadId: String(context.threadId || ''),

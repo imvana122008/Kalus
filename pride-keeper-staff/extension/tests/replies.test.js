@@ -71,3 +71,15 @@ test('applies replacements only when user-triggered insert opts in', async () =>
 
   assert.deepEqual(writes, ['Здравствуйте', '/привет']);
 });
+
+test('quick toolbar variables include user tags while reserved author values cannot be overwritten', () => {
+ const context=require('../src/context.js');
+ const original=context.collectThreadAuthor;context.collectThreadAuthor=()=>({name:'Actual_Author',url:'https://forum.pridekeeper.tech/members/63/'});
+ try {const vars=replies.collectVariables({querySelector:()=>null,location:{origin:'https://forum.pridekeeper.tech'}},{threadId:'1646'},[{title:'Метка',text:'Верно'},{title:'author',text:'Wrong'}]);assert.equal(vars.author,'Actual_Author');assert.equal(replies.renderTemplate('{автор}: {Метка}',vars).text,'Actual_Author: Верно');}finally{context.collectThreadAuthor=original;}
+});
+
+test('reply and complaint APIs load their context dependency in a fresh CommonJS process', () => {
+ const child=require('node:child_process');const path=require('node:path');
+ const script="const r=require('./src/replies.js');const c=require('./src/complaints.js');const d={querySelector:()=>null,location:{origin:'https://forum.pridekeeper.tech',href:'https://forum.pridekeeper.tech/threads/57/',pathname:'/threads/57/'}};console.log(JSON.stringify({variables:r.collectVariables(d,{threadId:'57'}),card:c.buildCard(d,{threadId:'57'})}));";
+ const result=JSON.parse(child.execFileSync(process.execPath,['-e',script],{cwd:path.join(__dirname,'..'),encoding:'utf8'}));assert.equal(result.variables.author,'');assert.equal(result.variables.thread_url,'https://forum.pridekeeper.tech/threads/57/');assert.equal(result.card.author,'');
+});

@@ -9,7 +9,7 @@ const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 test('manifest loads registry and runtime in dependency order on the forum only', () => {
   const manifest = JSON.parse(read('manifest.json'));
   const scripts = manifest.content_scripts?.[0]?.js || [];
-  assert.equal(manifest.version, '5.0.5');
+  assert.equal(manifest.version, '5.0.6');
   assert.deepEqual(manifest.host_permissions, ['https://forum.pridekeeper.tech/*']);
   assert.deepEqual(manifest.content_scripts?.[0]?.matches, ['https://forum.pridekeeper.tech/*']);
   assert.deepEqual(scripts, [
@@ -20,8 +20,8 @@ test('manifest loads registry and runtime in dependency order on the forum only'
 });
 
 test('all runtime components identify as the same v5.0 release', () => {
-  assert.match(read('src/bootstrap.js'), /version:\s*'5\.0\.5'/);
-  assert.match(read('src/staff.js'), /__PRIDE_KEEPER_STAFF__\s*=\s*"5\.0\.5"/);
+  assert.match(read('src/bootstrap.js'), /version:\s*'5\.0\.6'/);
+  assert.match(read('src/staff.js'), /__PRIDE_KEEPER_STAFF__\s*=\s*"5\.0\.6"/);
   assert.match(read('src/staff.js'), /headerVersionText:\s*"v5\.0/);
 });
 

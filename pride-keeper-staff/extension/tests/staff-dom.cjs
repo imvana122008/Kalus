@@ -440,7 +440,7 @@ test('Helper button flows: navigation, templates, tags, replacements, rules, his
   try {
     Object.defineProperty(w.navigator, 'clipboard', { value: { writeText: async text => copied.push(text) } });
     w.confirm = () => true;
-    w.PKFA.version = '5.0.5';
+    w.PKFA.version = '5.0.6';
     w.PKFA.asset = name => `assets/${name}`;
     for (const file of ['history.js', 'complaints.js', 'preferences.js', 'replies.js', 'productivity.js', 'panel.js']) w.eval(fs.readFileSync(path.join(root, 'src', file), 'utf8'));
     await w.PKFA.store.update(state => {
@@ -565,4 +565,46 @@ test('editing a surviving duplicate keeps a deleted sibling hidden through publi
   env=await setup('<article class="message" id="js-post-4561">'+html+'<a href="/posts/4561/edit">Изменить</a></article>',saved);
   assert.equal(env.shadow.querySelectorAll('.k-person').length,2);
  } finally {env.dom.window.close();}
+});
+
+test('real forum avatar before username does not swallow the thread author in replies or complaints', async () => {
+ const html=fs.readFileSync(path.join(__dirname,'fixtures/forum-author-1646.html'),'utf8');
+ const dom=new JSDOM(html,{url:'https://forum.pridekeeper.tech/threads/1646/',runScripts:'outside-only'});const env={dom,w:dom.window};
+ env.w.eval(fs.readFileSync(path.join(root,'src/context.js'),'utf8'));
+ try {
+  for(const file of ['replies.js','complaints.js']) env.w.eval(fs.readFileSync(path.join(root,'src',file),'utf8'));
+  const variables=env.w.PKFA.replies.collectVariables(env.w.document,{threadId:'1646',title:'1234'});
+  assert.equal(variables.author,'Ivan_Kalus');assert.equal(variables.author_url,'https://forum.pridekeeper.tech/members/63/');
+  assert.equal(env.w.PKFA.complaints.buildCard(env.w.document).author,'Ivan_Kalus');
+  assert.equal(variables.thread_url,'https://forum.pridekeeper.tech/threads/1646/');
+ } finally {env.dom.window.close();}
+});
+
+test('thread author remains the starter on later pages and ignores usernames inside quoted content', () => {
+ const cases=[
+  {html:'<div class="p-description"><a class="username" href="/members/63/">Starter</a></div><article class="message" data-author="Reply_Author"><div class="message-name"><a>Reply_Author</a></div></article>',url:'https://forum.pridekeeper.tech/threads/1646/page-2',name:'Starter'},
+  {html:'<article class="message"><div class="message-name"><a class="username">Actual_Name</a></div><div class="bbWrapper"><a class="username">Quoted_Name</a></div></article>',url:'https://forum.pridekeeper.tech/threads/1646/',name:'Actual_Name'},
+  {html:'<article class="message"><div class="bbWrapper"><a class="username">Quoted_Name</a></div></article>',url:'https://forum.pridekeeper.tech/threads/1646/',name:''},
+  {html:'<article class="message" data-author="Reply_Author"></article>',url:'https://forum.pridekeeper.tech/threads/1646/page-2',name:''},
+  {html:'<div class="p-description"><a class="username" href="https://evil.test/members/63/">Starter</a></div>',url:'https://forum.pridekeeper.tech/threads/1646/',name:'Starter',profile:''}
+ ];
+ for(const item of cases){const dom=new JSDOM(item.html,{url:item.url,runScripts:'outside-only'});try{dom.window.eval(fs.readFileSync(path.join(root,'src/context.js'),'utf8'));const author=dom.window.PKFA.context.collectThreadAuthor(dom.window.document);assert.equal(author.name,item.name);if('profile' in item)assert.equal(author.url,item.profile);}finally{dom.window.close();}}
+});
+
+test('reply panel shows resolved author and variable chips insert at the template cursor without sending', async () => {
+ const env=await setup('<div class="p-description"><a class="username" href="/members/63/">Ivan_Kalus</a></div>'+fixture);
+ try {
+  const w=env.w;w.PKFA.asset=name=>name;
+  for(const file of ['history.js','complaints.js','preferences.js','replies.js','productivity.js','panel.js'])w.eval(fs.readFileSync(path.join(root,'src',file),'utf8'));
+  let writes=[];Object.defineProperty(w.navigator,'clipboard',{value:{writeText:async text=>writes.push(text)}});
+  const ctx=w.PKFA.context.inspectDocument(w.document,w.location);await w.PKFA.panel.mount(w.document,{context:ctx,state:await w.PKFA.store.getState(),replyController:{},actionExecutor:{}});
+  const host=w.document.querySelector('#pkfa-root');host.querySelector('.pkfa-side [data-route="replies"]').click();await flush();
+  assert.match(host.querySelector('[data-reply-context]').textContent,/Ivan_Kalus/);
+  assert.equal(host.querySelector('.pkfa-answer-card p').textContent.includes('{author}'),false);
+  host.querySelector('[data-copy-thread-link]').click();await flush();assert.equal(writes.at(-1),'https://forum.pridekeeper.tech/threads/1646/');
+  host.querySelector('[data-new-template]').click();await flush();const input=host.querySelector('[data-template-form] [name="text"]');
+  input.value='Начало конец';input.setSelectionRange(7,7);host.querySelector('[data-template-variable="author"]').click();await flush();
+  assert.equal(input.value,'Начало {author}конец');assert.equal(input.selectionStart,15);
+  assert.equal(w.document.querySelector('textarea[name="message"]').value,'DO NOT TOUCH');
+ }finally{env.dom.window.close();}
 });

@@ -125,7 +125,7 @@
       if (button.hasAttribute('data-pkfa-status')) {
         const status = button.getAttribute('data-pkfa-status');
         const template = (controller.state.templates || []).find((item) => item.status === status || item.id === `complaint-${status}`);
-        if (template && controller.replies) await controller.replies.insertTemplate(template, root.PKFA?.replies?.collectVariables?.(doc, controller.context) || {}, { applyReplacements: true, rules: controller.state.replacements || [] });
+        if (template && controller.replies) await controller.replies.insertTemplate(template, root.PKFA?.replies?.collectVariables?.(doc, controller.context, controller.state.tags || []) || {}, { applyReplacements: true, rules: controller.state.replacements || [] });
         await controller.history?.add?.({ action: 'complaint-status', status, threadId: controller.context.threadId || '', title: controller.context.title || '', section: root.PKFA?.complaints?.buildCard?.(doc, controller.context)?.section || '', ok: true });
         element.querySelectorAll?.('[data-pkfa-status]').forEach((item) => item.classList.toggle('is-active', item === button));
         notice('Статус сохранён', 'success');
@@ -134,7 +134,7 @@
       if (button.hasAttribute('data-pkfa-template')) {
         const template = (controller.model.templates || []).find((item) => item.id === button.getAttribute('data-pkfa-template'));
         if (!template || !controller.replies) return;
-        const result = await controller.replies.insertTemplate(template, root.PKFA?.replies?.collectVariables?.(doc, controller.context) || {}, { applyReplacements: true, rules: controller.state.replacements || [] });
+        const result = await controller.replies.insertTemplate(template, root.PKFA?.replies?.collectVariables?.(doc, controller.context, controller.state.tags || []) || {}, { applyReplacements: true, rules: controller.state.replacements || [] });
         notice(result?.unknown?.length ? `Вставлено; не заполнено: ${result.unknown.join(', ')}` : 'Быстрый ответ вставлен', result?.unknown?.length ? 'warning' : 'success');
         return;
       }

@@ -126,6 +126,22 @@
     };
   }
 
+  function collectThreadAuthor(doc, context = {}) {
+    const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
+    const header = doc?.querySelector?.('.p-description a.username, .p-description .username');
+    const laterPage = context.isFirstThreadPage === false || /\/page-(?:[2-9]|\d{2,})(?:\/|$)/i.test(doc?.location?.pathname || '');
+    const post = laterPage ? null : doc?.querySelector?.('article.message, .message, [id^="post-"]');
+    const nameNode = post?.querySelector?.('.message-name a.username, .message-name a, .message-name .username, .message-name');
+    const name = clean(header?.textContent) || clean(post?.getAttribute?.('data-author')) || clean(nameNode?.textContent);
+    const link = header?.getAttribute?.('href') ? header : nameNode?.getAttribute?.('href') ? nameNode : post?.querySelector?.('.message-avatar a[href*="/members/"], a.avatar[href*="/members/"]');
+    let url = '';
+    try {
+      const parsed = new URL(link?.getAttribute?.('href') || '', doc?.location?.href || doc?.baseURI);
+      if (name && parsed.origin === doc?.location?.origin && /^\/members\/(?:[^/]+\.)?\d+\/?$/.test(parsed.pathname)) url = parsed.origin + parsed.pathname;
+    } catch (_) {}
+    return { name, url };
+  }
+
   function collectProfile(doc) {
     const user = doc?.querySelector?.('.p-navgroup-link--user, a[href="/account/"], [data-nav-id="account"]');
     const name = user?.textContent?.replace(/\s+/g, ' ').trim() || 'Администратор';
@@ -149,6 +165,7 @@
     isEffectivelyVisible,
     detectDocumentActions,
     collectProfile,
+    collectThreadAuthor,
     inspectDocument,
     findStaffPost
   };

@@ -1,9 +1,10 @@
 (function (root, factory) {
-  const api = factory(root);
+  const contextApi = typeof module === 'object' && module.exports ? require('./context.js') : root.PKFA?.context;
+  const api = factory(root, contextApi);
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.PKFA = root.PKFA || {};
   root.PKFA.replies = api;
-})(typeof globalThis !== 'undefined' ? globalThis : window, function (root) {
+})(typeof globalThis !== 'undefined' ? globalThis : window, function (root, contextApi) {
   'use strict';
 
   function renderTemplate(template = '', variables = {}) {
@@ -59,12 +60,19 @@
     if (form.requestSubmit) form.requestSubmit(submit); else submit.click();
   }
 
-  function collectVariables(doc = root.document, context = {}) {
-    const firstPost = doc?.querySelector?.('article.message, .message, [id^="post-"]');
-    const author = firstPost?.querySelector?.('[data-xf-init="member-tooltip"], .message-name a, .username')?.textContent?.trim() || '';
+  function collectVariables(doc = root.document, context = {}, tags = []) {
+    const authorInfo = contextApi.collectThreadAuthor(doc, context);
+    const author = authorInfo.name;
+    const threadId = context.threadId || contextApi.parseThreadId(doc?.location?.pathname || '');
+    const threadUrl = threadId && doc?.location?.origin ? `${doc.location.origin}/threads/${threadId}/` : '';
     const admin = doc?.querySelector?.('a[href="/account/"], .p-navgroup-link--user')?.textContent?.trim() || '';
     return {
+      ...Object.fromEntries(tags.filter(tag=>tag.title).map(tag=>[tag.title,tag.text || ''])),
       author,
+      'автор': author,
+      'Автор': author,
+      author_url: authorInfo.url,
+      thread_url: threadUrl,
       accused: '',
       admin,
       thread_id: context.threadId || '',

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PRIDE KEEPER Forum Assistant",
-  "version": "5.0.5",
+  "version": "5.0.6",
   "description": "Универсальная панель состава, ответов, истории и управления темами форума Pride Keeper.",
   "permissions": ["storage", "activeTab"],
   "host_permissions": ["https://forum.pridekeeper.tech/*"],

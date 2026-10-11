@@ -6,7 +6,7 @@
   const initialContext = window.PKFA?.context?.inspectDocument?.(document, location);
   if (/\/threads\//i.test(location.pathname) && initialContext && !initialContext.isStaffThread) return;
   if (window.__PRIDE_KEEPER_STAFF__) return;
-  window.__PRIDE_KEEPER_STAFF__ = "5.0.5";
+  window.__PRIDE_KEEPER_STAFF__ = "5.0.6";
 
   // ============================================================
   // PRIDE KEEPER STAFF — ОСНОВНЫЕ НАСТРОЙКИ
@@ -14,7 +14,7 @@
   // Если ты кидаешь мне правки в чат, я дальше меняю именно этот файл.
   // ============================================================
   const CONFIG = {
-    version: "5.0.5",
+    version: "5.0.6",
 
     storageKey: "kalusStaffEditorState",
     codeCacheKey: "prideKeeperStaffGeneratedCode",

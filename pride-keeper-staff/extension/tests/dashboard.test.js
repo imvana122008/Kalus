@@ -43,7 +43,7 @@ test('shell template exposes accessible dialog and navigation state', () => {
   assert.doesNotMatch(html || '', /class="pkfa-bell"/);
   assert.equal((html.match(/data-pkfa-launcher/g) || []).length, 1);
   assert.match(html, /aria-live="polite"/);
-  assert.match(html, /HELPER <em>v5\.0\.5<\/em>/);
+  assert.match(html, /HELPER <em>v5\.0\.6<\/em>/);
 });
 
 test('uses one round paw launcher without the old PK cube', () => {

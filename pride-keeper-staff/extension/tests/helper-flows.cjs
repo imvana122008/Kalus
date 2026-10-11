@@ -12,7 +12,7 @@ module.exports=async function helperFlows(p,origin,output) {
   await route('home');
   assert.equal(await p.locator('.pkfa-profile-card,.pkfa-clock').count(),0);
   assert.equal(await p.locator('.pkfa-side__item svg').count(),10);
-  assert.equal(await p.locator('.pkfa-side__brand em').innerText(),'v5.0.5');assert.ok(await p.locator('.pkfa-side__brand em').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>0));
+  assert.equal(await p.locator('.pkfa-side__brand em').innerText(),'v5.0.6');assert.ok(await p.locator('.pkfa-side__brand em').evaluate(el=>parseFloat(getComputedStyle(el).fontSize)>0));
   await p.screenshot({path:path.join(output,'home.png')});
 
   await route('replace');
@@ -42,7 +42,11 @@ module.exports=async function helperFlows(p,origin,output) {
   await p.locator('[data-helper-close]').click();await editor.fill('');await editor.pressSequentially('/qa ');assert.equal(await text(),'/qa ');
   await p.locator('[data-helper-toggle]').click();await route('replace');await p.locator('[data-toggle-replacement]').click();
 
-  await route('replies');await p.locator('[data-new-template]').click();await p.locator('[data-cancel-template]').click();
+  await route('replies');assert.match(await p.locator('[data-reply-context]').innerText(),/Test_Author/);
+  await p.locator('[data-copy-thread-link]').click();await p.waitForFunction(async()=> (await navigator.clipboard.readText()).endsWith('/threads/9002/'));assert.equal(await clipboard(),origin+'/threads/9002/');
+  await p.locator('[data-new-template]').click();
+  await p.locator('[data-template-form] [name="text"]').fill('Prefix ');await p.locator('[data-template-variable="author"]').click();assert.equal(await p.locator('[data-template-form] [name="text"]').inputValue(),'Prefix {author}');
+  await p.locator('[data-cancel-template]').click();
   await p.locator('[data-new-template]').click();
   await p.locator('[data-template-form] [name="title"]').fill('QA_Answer');
   await p.locator('[data-template-form] [name="text"]').fill('Hello {author} /qa');
@@ -50,6 +54,7 @@ module.exports=async function helperFlows(p,origin,output) {
   const answer=p.locator('.pkfa-answer-card').filter({hasText:'QA_Answer'});
   await answer.waitFor();
   assert.equal(await p.locator('[data-pkfa-template]').filter({hasText:'QA_Answer'}).count(),1);
+  assert.equal(await answer.locator('p').innerText(),'Hello Test_Author QA Expanded');
   await answer.locator('[data-favorite-template]').click();
   await answer.locator('[data-edit-template]').click();
   await p.locator('[data-template-form] [name="text"]').fill('Hi {author} /qa');

@@ -71,3 +71,13 @@
 #pkfa-root .pkfa-answer-card p{white-space:pre-wrap}
 
 #pkfa-root [hidden]{display:none!important}
+
+#pkfa-root .pkfa-reply-context{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:12px 0;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+#pkfa-root .pkfa-variable-chips{display:flex;flex-wrap:wrap;gap:6px}
+#pkfa-root .pkfa-variable-chips button{padding:7px 10px;font-size:12px}
+#pkfa-root .pkfa-variable-chips code{color:var(--a);margin-left:4px}
+#pkfa-root .pkfa-editor-form small{color:var(--muted);line-height:1.5}
+
+#pkfa-root .pkfa-reply-context button,#pkfa-root .pkfa-variable-chips button{padding:8px 12px;border:1px solid var(--line);border-radius:8px;background:#0d131b;color:var(--text)}
+#pkfa-root .pkfa-reply-context button:hover,#pkfa-root .pkfa-variable-chips button:hover{border-color:var(--a);background:rgba(var(--ar),.08)}
+#pkfa-root .pkfa-reply-context button:disabled{opacity:.45;cursor:default}
