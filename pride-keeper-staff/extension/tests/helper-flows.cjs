@@ -101,9 +101,9 @@ module.exports=async function helperFlows(p,origin,output) {
   await route('settings');
   await p.locator('[data-setting="appearance"]').click();assert.equal(await p.locator('.pkfa-appearance').getAttribute('tabindex'),'-1');
   await p.locator('[data-setting="navigation"]').click();assert.equal(await p.locator('.pkfa-ui-options').getAttribute('tabindex'),'-1');
-  for(const accent of ['blue','purple','gold']) await p.locator(`[data-accent="${accent}"]`).click();
-  for(const scale of ['large','compact','normal']) await p.locator('[data-ui-scale]').selectOption(scale);
-  for(const position of ['above','below']) await p.locator('[data-inline-position]').selectOption(position);
+  for(const accent of ['blue','purple','gold']) {await p.locator(`button[data-accent="${accent}"]`).click();await p.waitForFunction(accent=>document.querySelector('#pkfa-root')?.dataset.accent===accent,accent);}
+  for(const scale of ['large','compact','normal']) {await p.locator('[data-ui-scale]').selectOption(scale);await p.waitForFunction(scale=>document.querySelector('#pkfa-root')?.dataset.scale===scale,scale);}
+  for(const position of ['above','below']) {await p.locator('[data-inline-position]').selectOption(position);await p.waitForFunction(position=>document.querySelector('[data-inline-position]')?.value===position && document.querySelector('[data-toast]')?.textContent==='Настройка применена',position);}
   await p.locator('[data-export-settings]').click();await p.waitForFunction(async()=>{try{return !!JSON.parse(await navigator.clipboard.readText()).ui;}catch{return false;}});const exported=await clipboard();assert.ok(JSON.parse(exported).ui);
   p.once('dialog',dialog=>dialog.accept());
   await p.locator('[data-import-file]').setInputFiles({name:'test-settings.json',mimeType:'application/json',buffer:Buffer.from(exported)});
