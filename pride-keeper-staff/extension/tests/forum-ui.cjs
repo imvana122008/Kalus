@@ -44,9 +44,10 @@ const server = http.createServer(async (req, res) => {
     const id = edit === '4561' ? '9000' : '9001';
     if (req.method === 'POST') { const code = new URLSearchParams(body).get('message'); assert.match(code, /^\[PARSEHTML\]/); posts[id] = code.replace(/^\[PARSEHTML\]\s*|\s*\[\/PARSEHTML\]$/g, ''); savedPosts++; res.writeHead(303, { Location: `/threads/${id}/` }); res.end(); return; }
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.end(page(`<main><h1>Редактировать существующий пост ${edit}</h1><form action="/posts/${edit}/edit" method="post"><button type="button" data-cmd="xfBbCode" onclick="this.classList.toggle('fr-active');document.querySelector('textarea').style.display='block'">BBCode</button><textarea name="message" style="display:none"></textarea><button type="submit">Сохранить</button></form></main>`)); return;
+    res.end(page(`<main><h1>Редактировать существующий пост ${edit}</h1><form action="/posts/${edit}/edit" method="post"><button type="button" data-cmd="xfBbCode" onclick="fetch('/bbcode-convert').then(()=>{const source=document.createElement('textarea');source.name='message';this.closest('form').appendChild(source);this.classList.add('fr-active');this.closest('form').querySelector('[contenteditable]').style.display='none'})">BBCode</button><div class="fr-element" contenteditable="true">Original visual editor</div><textarea name="message_html" style="display:none"></textarea><button type="submit">Сохранить</button></form></main>`)); return;
   }
   if (pathname.endsWith('/add-reply')) { replies++; res.writeHead(500); res.end('Reply forbidden'); return; }
+  if (pathname === '/bbcode-convert') { await new Promise(resolve => setTimeout(resolve, 2200)); res.end('converted'); return; }
   res.writeHead(404); res.end();
 });
 
@@ -116,11 +117,18 @@ const server = http.createServer(async (req, res) => {
       await p.waitForFunction(({ section, name }) => location.pathname === '/threads/9000/' && document.querySelector(`#${section}`)?.textContent.includes(name), { section, name: `Section_Member_${index}` });
       await open('9000');
       assert.equal(await row(`Section_Member_${index}`).count(), 1);
+      await row(`Section_Member_${index}`).locator('[data-do="edit"]').click();
+      const destination = sections[(index + 1) % sections.length][0];
+      await p.locator('.k-select').filter({ has: p.locator('[data-f="section"]') }).locator('.k-select__button').click();
+      await p.locator(`[data-k-option="${destination}"]`).click();
+      await p.locator('[data-save]').click();
+      await p.waitForFunction(({ destination, name }) => location.pathname === '/threads/9000/' && document.querySelector(`#${destination}`)?.textContent.includes(name), { destination, name: `Section_Member_${index}` });
+      await open('9000');
       await row(`Section_Member_${index}`).locator('[data-do="remove"]').click();
       await p.waitForFunction(name => location.pathname === '/threads/9000/' && !document.querySelector('article.message')?.textContent.includes(name), `Section_Member_${index}`);
       assert.ok(posts['9000'].includes(developer));
     }
-    assert.equal(savedPosts, 13); assert.equal(replies, 0);
+    assert.equal(savedPosts, 18); assert.equal(replies, 0);
     const second = await context.newPage(); await second.goto(`${origin}/threads/9001/`);
     await Promise.all([p, second].map((tab, tabIndex) => tab.evaluate(async tabIndex => {
       for (let index = 0; index < 5; index++) await PKFA.store.update(state => { state.tags.push({ id: `parallel-${tabIndex}-${index}`, text: 'parallel' }); });
@@ -139,7 +147,7 @@ const server = http.createServer(async (req, res) => {
     await p.locator('[data-code]').filter({ visible: true }).waitFor();
     await p.locator('[data-publish]').click();
     await p.waitForFunction(() => location.pathname === '/threads/9000/' && !!document.querySelector('#main-mod .card a[href="https://vk.com/deputy_test"]'));
-    assert.equal(savedPosts, 14); assert.equal(replies, 0); assert.ok(posts['9000'].includes(developer));
+    assert.equal(savedPosts, 19); assert.equal(replies, 0); assert.ok(posts['9000'].includes(developer));
     await open('9000');
     const sameThread = await context.newPage(); sameThread.on('pageerror', error => errors.push(error.message));
     await sameThread.goto(`${origin}/threads/9000/`); await sameThread.locator('[data-helper-toggle]').click(); await sameThread.locator('.pkfa-side [data-route="staff"]').click();
@@ -154,7 +162,7 @@ const server = http.createServer(async (req, res) => {
     await open('9000'); await row('Parallel_Member_').nth(1).waitFor(); assert.equal(await row('Parallel_Member_').count(), 2);
     await sameThread.close();
     assert.equal(errors.length, 0, errors.join('\n'));
-    const report = { passed: true, savedExistingPosts: savedPosts, newReplies: replies, allFiveSections: true, threadIsolation: true, concurrentTabs: true, concurrentStaffAdditions: true, manualPublicationWithAutoOff: true, roles: true, profileAndVkLinks: true, developerPreserved: true, viewportWidths: [1440, 768, 360], pageErrors: errors, source: 'captured forum card + synthetic offline page; no live publication' };
+    const report = { passed: true, savedExistingPosts: savedPosts, newReplies: replies, allFiveSections: true, allFiveMoves: true, delayedHtmlToBbcode: true, threadIsolation: true, concurrentTabs: true, concurrentStaffAdditions: true, manualPublicationWithAutoOff: true, roles: true, profileAndVkLinks: true, developerPreserved: true, viewportWidths: [1440, 768, 360], pageErrors: errors, source: 'captured forum card + synthetic offline page; no live publication' };
     fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report));
   } catch (error) {
     console.log(JSON.stringify({ url: p.url(), savedPosts, replies, errors, staff: storage.pkfaStateV5?.staffByThread, jobs: Object.keys(storage).filter(key => key.startsWith('prideKeeperStaffPublishJob')), postNames: posts['9000'].match(/class="[^\"]*name"[^>]*>([^<]+)/g) }));

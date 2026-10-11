@@ -6,7 +6,7 @@
   const initialContext = window.PKFA?.context?.inspectDocument?.(document, location);
   if (/\/threads\//i.test(location.pathname) && initialContext && !initialContext.isStaffThread) return;
   if (window.__PRIDE_KEEPER_STAFF__) return;
-  window.__PRIDE_KEEPER_STAFF__ = "5.0.3";
+  window.__PRIDE_KEEPER_STAFF__ = "5.0.4";
 
   // ============================================================
   // PRIDE KEEPER STAFF — ОСНОВНЫЕ НАСТРОЙКИ
@@ -14,7 +14,7 @@
   // Если ты кидаешь мне правки в чат, я дальше меняю именно этот файл.
   // ============================================================
   const CONFIG = {
-    version: "5.0.3",
+    version: "5.0.4",
 
     storageKey: "kalusStaffEditorState",
     codeCacheKey: "prideKeeperStaffGeneratedCode",
@@ -49,7 +49,7 @@
       editButtonTexts: ["Изменить", "Редактировать"],
       saveButtonTexts: ["Сохранить", "Save"],
       debounceMs: 900,
-      editorWaitMs: 9000,
+      editorWaitMs: 30000,
       saveWaitMs: 12000
     },
 
@@ -878,13 +878,15 @@
 
   async function ensureBbCodeMode(root) {
     const toggle = root?.querySelector?.('button[data-cmd="xfBbCode"]');
-    if (!toggle || toggle.classList.contains("fr-active")) return true;
-
-    toggle.click();
+    if (!toggle) return true;
+    if (!toggle.classList.contains("fr-active")) toggle.click();
+    // XenForo converts HTML to BBCode asynchronously. A highlighted button
+    // alone is not proof that the actual message textarea is ready.
     return !!(await waitFor(
-      () => toggle.classList.contains("fr-active"),
-      1800,
-      60
+      () => toggle.classList.contains("fr-active") &&
+        [...root.querySelectorAll('textarea[name="message"]')].find(isVisible),
+      CONFIG.autoPublish.editorWaitMs,
+      80
     ));
   }
 
@@ -1080,16 +1082,16 @@
         return false;
       }
 
-      const editor = findEditableControl(editForm);
-      if (!editor) {
-        await updateAutoPublishStatus("no_editor");
-        return false;
-      }
-
       // В визуальном режиме Froala превращает [PARSEHTML] в набор <p> и
       // может сохранить код как обычный текст. Сначала включаем BBCode-режим,
       // затем заменяем содержимое существующего сообщения.
       if (!await ensureBbCodeMode(editForm)) {
+        await updateAutoPublishStatus("no_editor");
+        return false;
+      }
+      // Reacquire the control: Froala creates message only after conversion.
+      const editor = findEditableControl(editForm);
+      if (!editor) {
         await updateAutoPublishStatus("no_editor");
         return false;
       }

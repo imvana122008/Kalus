@@ -362,7 +362,7 @@ test('Helper button flows: navigation, templates, tags, replacements, rules, his
   try {
     Object.defineProperty(w.navigator, 'clipboard', { value: { writeText: async text => copied.push(text) } });
     w.confirm = () => true;
-    w.PKFA.version = '5.0.3';
+    w.PKFA.version = '5.0.4';
     w.PKFA.asset = name => `assets/${name}`;
     for (const file of ['history.js', 'complaints.js', 'preferences.js', 'replies.js', 'productivity.js', 'panel.js']) w.eval(fs.readFileSync(path.join(root, 'src', file), 'utf8'));
     await w.PKFA.store.update(state => {

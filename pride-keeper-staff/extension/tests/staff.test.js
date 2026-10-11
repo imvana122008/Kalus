@@ -88,7 +88,7 @@ function loadLogic() {
   };
   sandbox.window = sandbox;
 
-  const instrumented = `${beforeUi}\nObject.assign(__staffExports, { saveMemberDraft: typeof saveMemberDraft === 'function' ? saveMemberDraft : undefined, makeCardFromTemplate, serializeCode, mergeSnapshot, findPostEditForm, completePendingPublishOnEditPage, autoSaveCodeToForum, findFirstPostEdit, mountWorkspace, isDirty, discardChanges, preparePublish, allowedSection, getState, setState, buildSelectModel: typeof buildSelectModel === 'function' ? buildSelectModel : undefined, nextSelectIndex: typeof nextSelectIndex === 'function' ? nextSelectIndex : undefined });\n})();`;
+  const instrumented = `${beforeUi}\nObject.assign(__staffExports, { ensureBbCodeMode, CONFIG, saveMemberDraft: typeof saveMemberDraft === 'function' ? saveMemberDraft : undefined, makeCardFromTemplate, serializeCode, mergeSnapshot, findPostEditForm, completePendingPublishOnEditPage, autoSaveCodeToForum, findFirstPostEdit, mountWorkspace, isDirty, discardChanges, preparePublish, allowedSection, getState, setState, buildSelectModel: typeof buildSelectModel === 'function' ? buildSelectModel : undefined, nextSelectIndex: typeof nextSelectIndex === 'function' ? nextSelectIndex : undefined });\n})();`;
   vm.runInNewContext(instrumented, sandbox, { filename: 'PRIDE_KEEPER_Staff.js' });
 
   return { ...sandbox.__staffExports, forms, memory, documentMock, locationMock, FakeElement, FakeTextArea, FakeForm };
@@ -394,6 +394,27 @@ test('pending publish switches XenForo to BBCode mode before replacing the post'
   assert.equal(sourceToggle.clicked, 1);
   assert.equal(editor.value, '[PARSEHTML]\n<div>updated</div>\n[/PARSEHTML]');
   assert.equal(save.clicked, 1);
+});
+
+test('BBCode conversion slower than 1.8 seconds is awaited before saving', async () => {
+  const { ensureBbCodeMode, FakeElement, FakeTextArea, FakeForm } = loadLogic();
+  const editor = new FakeTextArea({ rect:{width:0,height:0} });
+  const toggle = new FakeElement();
+  let active = false;
+  toggle.classList = { contains: () => active };
+  toggle.click = () => setTimeout(() => { active=true; editor.rect={width:10,height:10}; },2200);
+  const form = new FakeForm({action:'/posts/4425/edit',editor,sourceToggle:toggle});
+  assert.equal(await ensureBbCodeMode(form),true);
+  assert.equal(editor.rect.height,10);
+});
+
+test('active BBCode button without a visible code textarea must not authorize Save', async () => {
+  const { ensureBbCodeMode, CONFIG, FakeElement, FakeTextArea, FakeForm } = loadLogic();
+  CONFIG.autoPublish.editorWaitMs=150;
+  const editor=new FakeTextArea({rect:{width:0,height:0}});
+  const toggle=new FakeElement(); toggle.classList={contains:()=>true};
+  assert.equal(await ensureBbCodeMode(new FakeForm({action:'/posts/4425/edit',editor,sourceToggle:toggle})),false);
+  assert.equal(toggle.clicked,0);
 });
 
 test('publication refuses code whose staff snapshot changed before Save', async () => {
